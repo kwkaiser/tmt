@@ -78,11 +78,10 @@ func (t *Tmux) CurrentSession(ctx context.Context) (string, error) {
 	if !t.inside() {
 		return "", nil
 	}
-	out, err := t.run(ctx, "display", "-p", "#S")
-	if err != nil {
-		return "", nil
+	if out, err := t.run(ctx, "display", "-p", "#S"); err == nil {
+		return strings.TrimSpace(out), nil
 	}
-	return strings.TrimSpace(out), nil
+	return "", nil
 }
 
 func (t *Tmux) HasSession(ctx context.Context, name string) (bool, error) {
@@ -164,7 +163,7 @@ func (t *Tmux) FindWindow(ctx context.Context, session, name string) (tmt.Window
 }
 
 func findWindow(out, name string) (tmt.WindowID, bool) {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 2 && f[1] == name {
 			return tmt.WindowID(f[0]), true

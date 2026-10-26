@@ -406,7 +406,7 @@ func TestOpener(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r, ok, err := o.Find(sub)
+	r, ok, err := o.Find(context.Background(), sub)
 	if err != nil || !ok || r.Path() != f.clone {
 		t.Fatalf("Find inside = %v, %v, %v", r, ok, err)
 	}
@@ -414,7 +414,7 @@ func TestOpener(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if r, ok, err = o.Find(outside); err != nil || ok || r != nil {
+	if r, ok, err = o.Find(context.Background(), outside); err != nil || ok || r != nil {
 		t.Fatalf("Find outside = %v, %v, %v", r, ok, err)
 	}
 
@@ -452,7 +452,7 @@ func TestInjectableBinary(t *testing.T) {
 	if _, err := r.RenderStatus(context.Background()); err == nil {
 		t.Fatal("expected error from missing binary")
 	}
-	if _, _, err := o.Find(t.TempDir()); err == nil {
+	if _, _, err := o.Find(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("Find with missing binary should error")
 	}
 }

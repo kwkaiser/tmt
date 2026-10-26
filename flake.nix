@@ -27,6 +27,8 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             go
+            gopls
+            golangci-lint
             go-task
             git
           ];

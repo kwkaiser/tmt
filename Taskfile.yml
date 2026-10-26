@@ -21,11 +21,22 @@ tasks:
 
   test:
     cmds:
-      - go test ./...
+      - go test -race ./...
 
   lint:
     cmds:
       - go vet ./...
+      - golangci-lint run ./...
+
+  check:
+    desc: Run the same checks as CI.
+    cmds:
+      - test -z "$(gofmt -l . | tee /dev/stderr)"
+      - go mod tidy -diff
+      - task: lint
+      - go test -race ./...
+      - CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+      - CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./...
 
   hashes:
     desc: Regenerate vendorHash in nix/tmt.nix.

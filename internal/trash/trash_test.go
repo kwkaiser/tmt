@@ -63,7 +63,7 @@ func TestDiscardSameNameDoesNotCollide(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, ".trash")
 	tr := New(dir)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		src := filepath.Join(base, "wt")
 		makeTree(t, src)
 		must(t, tr.Discard(src))

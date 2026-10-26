@@ -60,7 +60,7 @@ func (i *Index) List(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var dirs []string
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			dirs = append(dirs, line)
 		}

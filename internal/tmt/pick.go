@@ -178,7 +178,7 @@ func (a *App) Preview(ctx context.Context, kind, dir, name string) error {
 				return err
 			}
 			fmt.Fprintf(a.Out, "%s %s\n", paint(th.Worktree, iconWorktree), r)
-			for _, line := range strings.Split(strings.TrimRight(status, "\n"), "\n") {
+			for line := range strings.SplitSeq(strings.TrimRight(status, "\n"), "\n") {
 				fmt.Fprintf(a.Out, "  %s\n", line)
 			}
 			fmt.Fprintln(a.Out)

@@ -24,11 +24,24 @@ jobs:
       - name: Format
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
 
+      - name: Tidy
+        run: go mod tidy -diff
+
       - name: Vet
         run: go vet ./...
 
+      - name: Lint
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run ./...
+
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
+
+      - name: Cross-compile
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          GOOS=darwin GOARCH=arm64 go build ./...
+          GOOS=linux GOARCH=arm64 go build ./...
 
       # - uses: ./.gitea/actions/nix
       #   with:

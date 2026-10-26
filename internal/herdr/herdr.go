@@ -252,11 +252,9 @@ func (h *Herdr) Attach(ctx context.Context, name string) error {
 }
 
 func (h *Herdr) KillSession(ctx context.Context, name string) error {
-	id, err := h.workspaceID(ctx, name)
-	if err != nil || id == "" {
-		return nil
+	if id, err := h.workspaceID(ctx, name); err == nil && id != "" {
+		_, _ = h.run(ctx, "workspace", "close", id)
 	}
-	_, _ = h.run(ctx, "workspace", "close", id)
 	return nil
 }
 

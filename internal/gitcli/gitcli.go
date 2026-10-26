@@ -38,11 +38,10 @@ func (o *Opener) Open(path string) (tmt.Repo, error) {
 	return &Repo{Bin: o.bin(), Dir: path}, nil
 }
 
-func (o *Opener) Find(path string) (tmt.Repo, bool, error) {
+func (o *Opener) Find(ctx context.Context, path string) (tmt.Repo, bool, error) {
 	r := &Repo{Bin: o.bin(), Dir: path}
-	top, err := r.line(context.Background(), "rev-parse", "--show-toplevel")
-	var ee *exitError
-	if errors.As(err, &ee) {
+	top, err := r.line(ctx, "rev-parse", "--show-toplevel")
+	if _, ok := errors.AsType[*exitError](err); ok {
 		return nil, false, nil
 	}
 	if err != nil {

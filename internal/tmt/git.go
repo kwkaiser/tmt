@@ -53,6 +53,6 @@ type Repo interface {
 
 type RepoOpener interface {
 	Open(path string) (Repo, error)
-	Find(path string) (Repo, bool, error)
+	Find(ctx context.Context, path string) (Repo, bool, error)
 	IsRepo(path string) bool
 }

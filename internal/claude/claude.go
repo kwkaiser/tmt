@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,9 +223,7 @@ func writeMCP(dir string) error {
 		switch s := cfg["mcpServers"].(type) {
 		case nil:
 		case map[string]any:
-			for k, v := range s {
-				servers[k] = v
-			}
+			maps.Copy(servers, s)
 		default:
 			return fmt.Errorf("parse %s: mcpServers is not an object", path)
 		}

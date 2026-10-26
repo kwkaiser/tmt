@@ -41,8 +41,7 @@ func (p *Picker) Pick(ctx context.Context, pk tmt.Pick) (tmt.Picked, bool, error
 		if ctx.Err() != nil {
 			return tmt.Picked{}, false, ctx.Err()
 		}
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 			switch exit.ExitCode() {
 			case 1, 130:
 				return tmt.Picked{}, false, nil

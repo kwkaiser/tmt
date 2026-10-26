@@ -69,7 +69,7 @@ func (a *App) candidateBases(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	if wd, err := os.Getwd(); err == nil {
-		if repo, ok, err := a.Git.Find(wd); err == nil && ok {
+		if repo, ok, err := a.Git.Find(ctx, wd); err == nil && ok {
 			dirs = append(dirs, filepath.Dir(repo.Path()))
 		}
 	}

@@ -30,12 +30,11 @@ func (d *Direnv) bin() string {
 }
 
 func (d *Direnv) Allow(ctx context.Context, dir string) error {
-	info, err := os.Stat(filepath.Join(dir, ".envrc"))
-	if err != nil || !info.Mode().IsRegular() {
+	if !isRegular(filepath.Join(dir, ".envrc")) {
 		return nil
 	}
-	bin, err := exec.LookPath(d.bin())
-	if err != nil {
+	bin, ok := lookPath(d.bin())
+	if !ok {
 		return nil
 	}
 	var stderr bytes.Buffer
@@ -48,4 +47,14 @@ func (d *Direnv) Allow(ctx context.Context, dir string) error {
 		return fmt.Errorf("direnv allow %s: %w", dir, err)
 	}
 	return nil
+}
+
+func isRegular(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func lookPath(name string) (string, bool) {
+	p, err := exec.LookPath(name)
+	return p, err == nil
 }
