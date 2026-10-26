@@ -12,7 +12,7 @@ buildGoModule {
   pname = "tmt";
   inherit version src;
 
-  vendorHash = "sha256-fddAzvfdUzVhR3APRVJP3FnNHJr/VAXGRNkbZoDucfo=";
+  vendorHash = "sha256-w25D0I/zTmEIwO5MuzU6CFRDOlefxYwx/jMtwPS644Q=";
   proxyVendor = true;
   overrideModAttrs = _: { name = "tmt-go-modules-${depsKey}"; };
 

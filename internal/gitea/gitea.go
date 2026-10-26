@@ -1,20 +1,20 @@
 package gitea
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/tls"
 	"fmt"
-	"os/exec"
-	"strings"
+	"net/http"
+	"os"
 	"sync"
 
+	"code.gitea.io/sdk/gitea"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
 
 const (
-	defaultBin = "tea"
-	maxPages   = 4
+	pageSize = 50
+	maxPages = 4
 )
 
 type pull struct {
@@ -30,25 +30,20 @@ type listing struct {
 }
 
 type Forge struct {
-	Bin string
+	Getenv      func(string) string
+	ConfigPaths []string
+	HTTPClient  *http.Client
 
 	mu    sync.Mutex
 	cache map[string]*listing
 }
 
 func New() *Forge {
-	return &Forge{Bin: defaultBin}
-}
-
-func (f *Forge) bin() string {
-	if f.Bin == "" {
-		return defaultBin
-	}
-	return f.Bin
+	return &Forge{}
 }
 
 func (f *Forge) PRStates(ctx context.Context, repo tmt.Repo, branches []string) (map[string]tmt.PRState, error) {
-	pulls, err := f.pulls(ctx, repo.Path())
+	pulls, err := f.pulls(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -56,89 +51,147 @@ func (f *Forge) PRStates(ctx context.Context, repo tmt.Repo, branches []string) 
 }
 
 func (f *Forge) MergedBranches(ctx context.Context, repo tmt.Repo) ([]tmt.MergedPR, error) {
-	pulls, err := f.pulls(ctx, repo.Path())
+	pulls, err := f.pulls(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
 	return mergedPulls(pulls), nil
 }
 
-func (f *Forge) pulls(ctx context.Context, dir string) ([]pull, error) {
+func (f *Forge) pulls(ctx context.Context, repo tmt.Repo) ([]pull, error) {
+	key := repo.Path()
 	f.mu.Lock()
 	if f.cache == nil {
 		f.cache = map[string]*listing{}
 	}
-	l, ok := f.cache[dir]
+	l, ok := f.cache[key]
 	if !ok {
 		l = &listing{}
-		f.cache[dir] = l
+		f.cache[key] = l
 	}
 	f.mu.Unlock()
 	l.once.Do(func() {
-		l.pulls, l.err = f.list(ctx, dir)
+		l.pulls, l.err = f.list(ctx, repo)
 	})
 	return l.pulls, l.err
 }
 
-func (f *Forge) list(ctx context.Context, dir string) ([]pull, error) {
+func (f *Forge) list(ctx context.Context, repo tmt.Repo) ([]pull, error) {
+	url, err := repo.RemoteURL(ctx, "origin")
+	if err != nil {
+		return nil, err
+	}
+	r, err := parseRemote(url)
+	if err != nil {
+		return nil, err
+	}
+	client, err := f.client(ctx, r.Host)
+	if err != nil {
+		return nil, err
+	}
 	var all []pull
 	for page := 1; page <= maxPages; page++ {
-		out, err := f.run(ctx, dir, "api", pageEndpoint(page))
+		prs, _, err := client.ListRepoPullRequests(r.Owner, r.Name, listOptions(page))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("gitea list pulls %s/%s: %w", r.Owner, r.Name, err)
 		}
-		pulls, ok := parsePage(out)
-		if !ok {
+		all = append(all, mapPulls(prs)...)
+		if len(prs) < pageSize {
 			break
 		}
-		all = append(all, pulls...)
 	}
 	return all, nil
 }
 
-func (f *Forge) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, f.bin(), args...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+func listOptions(page int) gitea.ListPullRequestsOptions {
+	return gitea.ListPullRequestsOptions{
+		ListOptions: gitea.ListOptions{Page: page, PageSize: pageSize},
+		State:       gitea.StateAll,
+	}
+}
+
+func (f *Forge) client(ctx context.Context, host string) (*gitea.Client, error) {
+	l, err := f.login(host)
 	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("%s %s: %w: %s", f.bin(), args[0], err, msg)
+		return nil, err
+	}
+	opts := []gitea.ClientOption{
+		gitea.SetContext(ctx),
+		gitea.SetGiteaVersion(""),
+		gitea.SetHTTPClient(f.httpClient(l.Insecure)),
+	}
+	if l.Token != "" {
+		opts = append(opts, gitea.SetToken(l.Token))
+	}
+	client, err := gitea.NewClient(l.URL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("gitea client for %s: %w", host, err)
+	}
+	return client, nil
+}
+
+func (f *Forge) login(host string) (login, error) {
+	getenv := f.getenv()
+	if l, ok := envLogin(getenv, host); ok {
+		return l, nil
+	}
+	paths := f.ConfigPaths
+	if paths == nil {
+		paths = teaConfigPaths(getenv)
+	}
+	cfg, path, err := readTeaConfig(paths)
+	if err != nil {
+		return login{}, err
+	}
+	l, ok := cfg.loginFor(host)
+	if !ok {
+		return login{}, fmt.Errorf("no tea login for %s in %s", host, path)
+	}
+	return l, nil
+}
+
+func (f *Forge) getenv() func(string) string {
+	if f.Getenv != nil {
+		return f.Getenv
+	}
+	return os.Getenv
+}
+
+func (f *Forge) httpClient(insecure bool) *http.Client {
+	if f.HTTPClient != nil {
+		return f.HTTPClient
+	}
+	if !insecure {
+		return &http.Client{}
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return &http.Client{Transport: t}
+}
+
+func mapPulls(prs []*gitea.PullRequest) []pull {
+	pulls := make([]pull, 0, len(prs))
+	for _, p := range prs {
+		if p == nil || p.Head == nil {
+			continue
 		}
-		return nil, fmt.Errorf("%s %s: %w", f.bin(), args[0], err)
+		pulls = append(pulls, pull{Branch: headBranch(p.Head), SHA: p.Head.Sha, State: pullState(p.HasMerged, p.State)})
 	}
-	return out, nil
+	return pulls
 }
 
-func pageEndpoint(page int) string {
-	return fmt.Sprintf("repos/{owner}/{repo}/pulls?state=all&limit=50&page=%d", page)
+func headBranch(h *gitea.PRBranchInfo) string {
+	if h.Name != "" {
+		return h.Name
+	}
+	return h.Ref
 }
 
-func parsePage(data []byte) ([]pull, bool) {
-	var raw []struct {
-		State  string `json:"state"`
-		Merged bool   `json:"merged"`
-		Head   struct {
-			Label string `json:"label"`
-			SHA   string `json:"sha"`
-		} `json:"head"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil || len(raw) == 0 {
-		return nil, false
-	}
-	pulls := make([]pull, 0, len(raw))
-	for _, r := range raw {
-		pulls = append(pulls, pull{Branch: r.Head.Label, SHA: r.Head.SHA, State: pullState(r.Merged, r.State)})
-	}
-	return pulls, true
-}
-
-func pullState(merged bool, state string) tmt.PRState {
+func pullState(merged bool, state gitea.StateType) tmt.PRState {
 	switch {
 	case merged:
 		return tmt.PRMerged
-	case state == "closed":
+	case state == gitea.StateClosed:
 		return tmt.PRClosed
 	default:
 		return tmt.PROpen

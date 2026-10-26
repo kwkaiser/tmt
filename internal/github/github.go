@@ -1,69 +1,118 @@
 package github
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
+	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
+	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/repository"
 )
 
-const defaultBin = "gh"
+const (
+	mergedLimit = 200
+	searchPage  = 100
+)
 
 type Forge struct {
-	Bin string
+	Token     string
+	Transport http.RoundTripper
+
+	mu      sync.Mutex
+	clients map[string]*api.GraphQLClient
 }
 
 func New() *Forge {
-	return &Forge{Bin: defaultBin}
-}
-
-func (f *Forge) bin() string {
-	if f.Bin == "" {
-		return defaultBin
-	}
-	return f.Bin
+	return &Forge{}
 }
 
 func (f *Forge) PRStates(ctx context.Context, repo tmt.Repo, branches []string) (map[string]tmt.PRState, error) {
 	if len(branches) == 0 {
 		return map[string]tmt.PRState{}, nil
 	}
-	out, err := f.run(ctx, repo.Path(), graphqlArgs(branches)...)
+	r, client, err := f.resolve(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	return parseStates(out, branches)
+	var resp struct {
+		Repository map[string]stateNodes `json:"repository"`
+	}
+	if err := client.DoWithContext(ctx, statesQuery(len(branches)), statesVars(r, branches), &resp); err != nil {
+		return nil, fmt.Errorf("github pr states: %w", err)
+	}
+	return mapStates(resp.Repository, branches), nil
 }
 
 func (f *Forge) MergedBranches(ctx context.Context, repo tmt.Repo) ([]tmt.MergedPR, error) {
-	out, err := f.run(ctx, repo.Path(), "pr", "list", "--state", "merged", "--author", "@me", "--limit", "200", "--json", "headRefName,headRefOid")
+	r, client, err := f.resolve(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	return parseMerged(out)
-}
-
-func (f *Forge) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, f.bin(), args...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("%s %s: %w: %s", f.bin(), args[0], err, msg)
+	var merged []tmt.MergedPR
+	var cursor *string
+	for len(merged) < mergedLimit {
+		page, err := searchMerged(ctx, client, r, min(searchPage, mergedLimit-len(merged)), cursor)
+		if err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("%s %s: %w", f.bin(), args[0], err)
+		merged = append(merged, page.prs()...)
+		if !page.PageInfo.HasNextPage || page.PageInfo.EndCursor == "" {
+			break
+		}
+		cursor = &page.PageInfo.EndCursor
 	}
-	return out, nil
+	return merged, nil
 }
 
-func graphqlQuery(n int) string {
+func (f *Forge) resolve(ctx context.Context, repo tmt.Repo) (repository.Repository, *api.GraphQLClient, error) {
+	url, err := repo.RemoteURL(ctx, "origin")
+	if err != nil {
+		return repository.Repository{}, nil, err
+	}
+	r, err := parseRemote(url)
+	if err != nil {
+		return repository.Repository{}, nil, err
+	}
+	client, err := f.client(r.Host)
+	if err != nil {
+		return repository.Repository{}, nil, err
+	}
+	return r, client, nil
+}
+
+func parseRemote(url string) (repository.Repository, error) {
+	r, err := repository.Parse(strings.TrimSpace(url))
+	if err != nil {
+		return repository.Repository{}, fmt.Errorf("parse github remote %q: %w", url, err)
+	}
+	if r.Host == "" || r.Owner == "" || r.Name == "" {
+		return repository.Repository{}, fmt.Errorf("parse github remote %q: missing host, owner or name", url)
+	}
+	return r, nil
+}
+
+func (f *Forge) client(host string) (*api.GraphQLClient, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, ok := f.clients[host]; ok {
+		return c, nil
+	}
+	c, err := api.NewGraphQLClient(api.ClientOptions{Host: host, AuthToken: f.Token, Transport: f.Transport})
+	if err != nil {
+		return nil, fmt.Errorf("github client for %s: %w", host, err)
+	}
+	if f.clients == nil {
+		f.clients = map[string]*api.GraphQLClient{}
+	}
+	f.clients[host] = c
+	return c, nil
+}
+
+func statesQuery(n int) string {
 	var decl, body strings.Builder
 	for i := range n {
 		fmt.Fprintf(&decl, ",$h%d:String!", i)
@@ -72,12 +121,12 @@ func graphqlQuery(n int) string {
 	return "query($owner:String!,$repo:String!" + decl.String() + "){repository(owner:$owner,name:$repo){" + body.String() + "}}"
 }
 
-func graphqlArgs(branches []string) []string {
-	args := []string{"api", "graphql", "-F", "owner={owner}", "-F", "repo={repo}"}
+func statesVars(r repository.Repository, branches []string) map[string]any {
+	vars := map[string]any{"owner": r.Owner, "repo": r.Name}
 	for i, b := range branches {
-		args = append(args, "-f", "h"+strconv.Itoa(i)+"="+b)
+		vars["h"+strconv.Itoa(i)] = b
 	}
-	return append(args, "-f", "query="+graphqlQuery(len(branches)))
+	return vars
 }
 
 type stateNodes struct {
@@ -86,24 +135,19 @@ type stateNodes struct {
 	} `json:"nodes"`
 }
 
-func parseStates(data []byte, branches []string) (map[string]tmt.PRState, error) {
-	var resp struct {
-		Data struct {
-			Repository map[string]stateNodes `json:"repository"`
-		} `json:"data"`
+func mapStates(repo map[string]stateNodes, branches []string) map[string]tmt.PRState {
+	states := make(map[string]tmt.PRState, len(branches))
+	for _, b := range branches {
+		states[b] = tmt.PRNone
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("parse graphql response: %w", err)
-	}
-	states := map[string]tmt.PRState{}
-	for key, v := range resp.Data.Repository {
+	for key, v := range repo {
 		i, err := strconv.Atoi(strings.TrimPrefix(key, "b"))
 		if err != nil || i < 0 || i >= len(branches) {
 			continue
 		}
 		states[branches[i]] = nodeState(v)
 	}
-	return states, nil
+	return states
 }
 
 func nodeState(v stateNodes) tmt.PRState {
@@ -113,17 +157,41 @@ func nodeState(v stateNodes) tmt.PRState {
 	return tmt.PRState(v.Nodes[0].State)
 }
 
-func parseMerged(data []byte) ([]tmt.MergedPR, error) {
-	var prs []struct {
+const mergedQuery = `query($q:String!,$first:Int!,$after:String){search(type:ISSUE,query:$q,first:$first,after:$after){pageInfo{hasNextPage endCursor} nodes{... on PullRequest{headRefName headRefOid}}}}`
+
+func mergedSearch(r repository.Repository) string {
+	return fmt.Sprintf("repo:%s/%s is:pr is:merged author:@me sort:created-desc", r.Owner, r.Name)
+}
+
+type searchResult struct {
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+	Nodes []struct {
 		HeadRefName string `json:"headRefName"`
 		HeadRefOid  string `json:"headRefOid"`
+	} `json:"nodes"`
+}
+
+func (s searchResult) prs() []tmt.MergedPR {
+	prs := make([]tmt.MergedPR, 0, len(s.Nodes))
+	for _, n := range s.Nodes {
+		if n.HeadRefName == "" {
+			continue
+		}
+		prs = append(prs, tmt.MergedPR{Branch: n.HeadRefName, HeadSHA: n.HeadRefOid})
 	}
-	if err := json.Unmarshal(data, &prs); err != nil {
-		return nil, fmt.Errorf("parse pr list: %w", err)
+	return prs
+}
+
+func searchMerged(ctx context.Context, client *api.GraphQLClient, r repository.Repository, first int, after *string) (searchResult, error) {
+	vars := map[string]any{"q": mergedSearch(r), "first": first, "after": after}
+	var resp struct {
+		Search searchResult `json:"search"`
 	}
-	merged := make([]tmt.MergedPR, 0, len(prs))
-	for _, p := range prs {
-		merged = append(merged, tmt.MergedPR{Branch: p.HeadRefName, HeadSHA: p.HeadRefOid})
+	if err := client.DoWithContext(ctx, mergedQuery, vars, &resp); err != nil {
+		return searchResult{}, fmt.Errorf("github merged prs: %w", err)
 	}
-	return merged, nil
+	return resp.Search, nil
 }
