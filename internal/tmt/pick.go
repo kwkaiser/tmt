@@ -21,12 +21,41 @@ func (a *App) header(pairs ...string) string {
 }
 
 func (a *App) Switch(ctx context.Context) error {
-	tasks, err := a.Tasks.List(ctx)
-	if err != nil {
+	return a.browse(ctx, false)
+}
+
+func (a *App) Pick(ctx context.Context) error {
+	return a.browse(ctx, true)
+}
+
+func (a *App) browse(ctx context.Context, repos bool) error {
+	cur, err := a.currentTask(ctx)
+	inTask := err == nil
+	if err != nil && !errors.Is(err, ErrTaskNotFound) {
 		return err
 	}
+	repos = repos && inTask
+	for {
+		var toggle bool
+		if repos {
+			toggle, err = a.pickRepo(ctx, cur)
+		} else {
+			toggle, err = a.pickTask(ctx, cur, inTask)
+		}
+		if err != nil || !toggle {
+			return err
+		}
+		repos = !repos
+	}
+}
+
+func (a *App) pickTask(ctx context.Context, cur Task, inTask bool) (bool, error) {
+	tasks, err := a.Tasks.List(ctx)
+	if err != nil {
+		return false, err
+	}
 	if len(tasks) == 0 {
-		return fmt.Errorf("no tasks under %s; run tmt create", a.Config.Root)
+		return false, fmt.Errorf("no tasks under %s; run tmt create", a.Config.Root)
 	}
 	w, bw := 0, 0
 	for _, t := range tasks {
@@ -40,7 +69,7 @@ func (a *App) Switch(ctx context.Context) error {
 	for _, t := range tasks {
 		up, err := a.Mux.HasSession(ctx, t.Session)
 		if err != nil {
-			return err
+			return false, err
 		}
 		state := paint(th.Main, "closed")
 		if up {
@@ -54,30 +83,71 @@ func (a *App) Switch(ctx context.Context) error {
 		})
 	}
 
+	keys := []string{"<enter>", "open task", "<tab>", "select", "<ctrl-x>", "done"}
+	expect := []string{"ctrl-x"}
+	if inTask {
+		keys = append(keys, "<ctrl-t>", "repos")
+		expect = append(expect, "ctrl-t")
+	}
 	picked, ok, err := a.Picker.Pick(ctx, Pick{
 		Label:   "Tasks",
-		Header:  a.header("<enter>", "open task"),
+		Header:  a.header(keys...),
 		Preview: a.previewArgs("task", PickKey, ""),
 		Items:   items,
+		Multi:   true,
+		Expect:  expect,
 	})
-	if err != nil || !ok || len(picked.Items) == 0 {
-		return err
+	if err != nil || !ok {
+		return false, err
 	}
-	return a.open(ctx, byDir[picked.Items[0].Key])
+	if picked.Key == "ctrl-t" {
+		return true, nil
+	}
+	if len(picked.Items) == 0 {
+		return false, nil
+	}
+	if picked.Key == "ctrl-x" {
+		selected := make([]Task, len(picked.Items))
+		for i, it := range picked.Items {
+			selected[i] = byDir[it.Key]
+		}
+		return false, a.doneTasks(ctx, selected, cur, inTask)
+	}
+	return false, a.open(ctx, byDir[picked.Items[0].Key])
 }
 
-func (a *App) Pick(ctx context.Context) error {
-	t, err := a.currentTask(ctx)
-	if errors.Is(err, ErrTaskNotFound) {
-		return a.Switch(ctx)
+func (a *App) doneTasks(ctx context.Context, tasks []Task, cur Task, inTask bool) error {
+	topics := make([]string, len(tasks))
+	for i, t := range tasks {
+		topics[i] = t.Topic
 	}
+	ok, err := a.Prompt.Confirm(ctx, fmt.Sprintf("Remove %s?", strings.Join(topics, " ")))
 	if err != nil {
 		return err
+	}
+	if !ok {
+		return ErrAborted
 	}
 
+	var last *Task
+	var errs []error
+	for _, t := range tasks {
+		if inTask && t.Dir == cur.Dir {
+			last = &t
+			continue
+		}
+		errs = append(errs, a.removeTask(ctx, t, removeOptions{yes: true}))
+	}
+	if last != nil {
+		errs = append(errs, a.removeTask(ctx, *last, removeOptions{yes: true}))
+	}
+	return errors.Join(errs...)
+}
+
+func (a *App) pickRepo(ctx context.Context, t Task) (bool, error) {
 	entries, err := a.Tasks.Entries(ctx, t)
 	if err != nil {
-		return err
+		return false, err
 	}
 	w := len(rootWindow)
 	for _, e := range entries {
@@ -99,11 +169,11 @@ func (a *App) Pick(ctx context.Context) error {
 		case EntryWorktree:
 			repo, err := a.Git.Open(filepath.Join(t.Dir, e.Name))
 			if err != nil {
-				return err
+				return false, err
 			}
 			st, err := repo.Status(ctx, false)
 			if err != nil {
-				return err
+				return false, err
 			}
 			items = append(items, PickItem{
 				Key:     e.Name,
@@ -114,34 +184,34 @@ func (a *App) Pick(ctx context.Context) error {
 
 	picked, ok, err := a.Picker.Pick(ctx, Pick{
 		Label:   t.Topic,
-		Header:  a.header("<enter>", "jump", "<ctrl-a>", "make worktree", "<ctrl-t>", "tasks"),
+		Header:  a.header("<enter>", "jump", "<ctrl-w>", "make worktree", "<ctrl-t>", "tasks"),
 		Preview: a.previewArgs("entry", t.Dir, PickKey),
 		Items:   items,
-		Expect:  []string{"ctrl-a", "ctrl-t"},
+		Expect:  []string{"ctrl-w", "ctrl-t"},
 	})
 	if err != nil || !ok {
-		return err
+		return false, err
 	}
 	if picked.Key == "ctrl-t" {
-		return a.Switch(ctx)
+		return true, nil
 	}
 	if len(picked.Items) == 0 {
-		return nil
+		return false, nil
 	}
 	name := picked.Items[0].Key
 
-	if picked.Key == "ctrl-a" && name != rootWindow {
+	if picked.Key == "ctrl-w" && name != rootWindow {
 		if err := a.addRepo(ctx, t, name, nil); err != nil {
-			return err
+			return false, err
 		}
 		if err := a.writeContext(ctx, t); err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	id, found, err := a.Mux.FindWindow(ctx, t.Session, name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !found {
 		dir := t.Dir
@@ -149,10 +219,10 @@ func (a *App) Pick(ctx context.Context) error {
 			dir = filepath.Join(t.Dir, name)
 		}
 		if id, err = a.Mux.NewWindow(ctx, t.Session, Window{Name: name, Dir: dir}); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return a.Mux.SelectWindow(ctx, id)
+	return false, a.Mux.SelectWindow(ctx, id)
 }
 
 func (a *App) Preview(ctx context.Context, kind, dir, name string) error {
