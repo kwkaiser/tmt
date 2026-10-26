@@ -1,0 +1,8 @@
+bin/
+*.test
+*.out
+.task/
+.env
+result
+.direnv
+.claude

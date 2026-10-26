@@ -1,0 +1,49 @@
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  BINARY: tmt
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  LDFLAGS: -X git.kwkaiser.io/kwkaiser/tmt/internal/cli.version={{.VERSION}}
+
+tasks:
+  build:
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - bin/{{.BINARY}}
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.BINARY}} ./cmd/{{.BINARY}}
+
+  test:
+    cmds:
+      - go test ./...
+
+  lint:
+    cmds:
+      - go vet ./...
+
+  hashes:
+    desc: Regenerate vendorHash in nix/tmt.nix.
+    cmds:
+      - ./nix/update-hashes.sh
+
+  update:
+    desc: Update Go dependencies and regenerate vendorHash.
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+      - task: hashes
+
+  run:
+    deps: [build]
+    cmds:
+      - bin/{{.BINARY}} {{.CLI_ARGS}}
+
+  clean:
+    cmds:
+      - rm -rf bin

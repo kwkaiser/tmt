@@ -1,0 +1,31 @@
+name: nix
+description: Install nix with the homelab remote builder as its build machine and substituter.
+
+inputs:
+  builder-key:
+    description: SSH private key for the nixbuilder user.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up remote builder SSH access
+      shell: bash
+      env:
+        NIX_REMOTE_BUILDER_KEY: ${{ inputs.builder-key }}
+      run: |
+        set -euo pipefail
+        printf '%s\n' "$NIX_REMOTE_BUILDER_KEY" > /tmp/nix-remote-builder-key
+        chmod 600 /tmp/nix-remote-builder-key
+        echo 'kwkaiser.io ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBjg3/tgIRRwvUx3SYBgzbbCAX3QCdwT95Wl73le4ePn' | \
+          sudo tee -a /etc/ssh/ssh_known_hosts >/dev/null
+        printf 'Host kwkaiser.io\n  User nixbuilder\n  IdentityFile /tmp/nix-remote-builder-key\n' | \
+          sudo tee /etc/ssh/ssh_config.d/nix-remote-builder.conf >/dev/null
+
+    - uses: DeterminateSystems/nix-installer-action@main
+      with:
+        extra-conf: |
+          builders = ssh-ng://nixbuilder@kwkaiser.io x86_64-linux /tmp/nix-remote-builder-key 2 1 - - -
+          builders-use-substitutes = true
+          extra-substituters = ssh-ng://nixbuilder@kwkaiser.io?trusted=true&priority=10
+          max-jobs = 0
