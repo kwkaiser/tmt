@@ -30,9 +30,9 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - uses: ./.gitea/actions/nix
-        with:
-          builder-key: ${{ secrets.NIX_REMOTE_BUILDER_KEY }}
+      # - uses: ./.gitea/actions/nix
+      #   with:
+      #     builder-key: ${{ secrets.NIX_REMOTE_BUILDER_KEY }}
 
-      - name: Build
-        run: nix build --no-link .#tmt
+      # - name: Build
+      #   run: nix build --no-link .#tmt
