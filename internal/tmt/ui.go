@@ -2,6 +2,8 @@ package tmt
 
 import "context"
 
+const PickKey = "{key}"
+
 type PickItem struct {
 	Key     string
 	Display string
@@ -10,7 +12,7 @@ type PickItem struct {
 type Pick struct {
 	Label   string
 	Header  string
-	Preview string
+	Preview []string
 	Items   []PickItem
 	Multi   bool
 	Expect  []string

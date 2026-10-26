@@ -15,11 +15,12 @@ type Window struct {
 }
 
 type Session struct {
-	Name    string
-	Dir     string
-	Owner   string
-	Command string
-	Windows []Window
+	Name     string
+	Dir      string
+	Owner    string
+	RootName string
+	Command  string
+	Windows  []Window
 }
 
 type Mux interface {

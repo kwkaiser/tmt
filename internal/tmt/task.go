@@ -1,6 +1,11 @@
 package tmt
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrTaskNotFound = errors.New("task not found")
 
 type Task struct {
 	Dir     string
@@ -32,5 +37,6 @@ type TaskStore interface {
 
 	Entries(ctx context.Context, t Task) ([]Entry, error)
 	Link(ctx context.Context, t Task, repo string) error
+	Unlink(ctx context.Context, t Task, repo string) error
 	LinkMissing(ctx context.Context, t Task) ([]string, error)
 }

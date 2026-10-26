@@ -6,6 +6,7 @@ type Agent interface {
 	Command() string
 	Trust(ctx context.Context, dir string) error
 	WriteContext(ctx context.Context, t Task, worktrees []string) error
+	ReadContext(ctx context.Context, t Task) (string, error)
 }
 
 type EnvTrust interface {
