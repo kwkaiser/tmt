@@ -1,7 +1,16 @@
 { lib
 , buildGoModule
+, makeWrapper
+, tmux
+, git
+, fzf
+, gh
+, tea
+, zoxide
 , src
 , version ? "dev"
+, mainProgram ? "tmt"
+, wrapperEnv ? { }
 }:
 
 let
@@ -25,7 +34,17 @@ buildGoModule {
     "-X git.kwkaiser.io/kwkaiser/tmt/internal/cli.version=${version}"
   ];
 
+  nativeBuildInputs = [ makeWrapper ];
+
+  postInstall = lib.optionalString (mainProgram != "tmt") ''
+    mv $out/bin/tmt $out/bin/${mainProgram}
+  '' + ''
+    wrapProgram $out/bin/${mainProgram} \
+      --prefix PATH : ${lib.makeBinPath [ tmux git fzf gh tea zoxide ]} \
+      ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value: "--set-default ${name} ${lib.escapeShellArg value}") wrapperEnv)}
+  '';
+
   doCheck = false;
 
-  meta.mainProgram = "tmt";
+  meta = { inherit mainProgram; };
 }
