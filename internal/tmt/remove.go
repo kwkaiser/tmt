@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
 type removeOptions struct {
 	force       bool
-	yes         bool
 	promptForce bool
 }
 
@@ -64,17 +62,7 @@ func (a *App) removeTask(ctx context.Context, t Task, o removeOptions) error {
 		if err != nil || !ok {
 			return err
 		}
-		o.force, o.yes = true, true
-	}
-
-	if !o.yes {
-		ok, err := a.Prompt.Confirm(ctx, fmt.Sprintf("Remove task %s (%s)?", t.Topic, strings.Join(wts, " ")))
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return ErrAborted
-		}
+		o.force = true
 	}
 
 	for i, r := range wts {
@@ -128,7 +116,7 @@ func (a *App) Done(ctx context.Context, o DoneOptions) error {
 	if err != nil {
 		return err
 	}
-	return a.removeTask(ctx, t, removeOptions{force: o.Force, yes: true, promptForce: !o.Yes})
+	return a.removeTask(ctx, t, removeOptions{force: o.Force, promptForce: !o.Yes})
 }
 
 func (a *App) Close(ctx context.Context) error {

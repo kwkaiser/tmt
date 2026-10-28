@@ -119,18 +119,6 @@ func (a *App) pickTask(ctx context.Context, cur Task, inTask bool) (bool, error)
 }
 
 func (a *App) doneTasks(ctx context.Context, tasks []Task, cur Task, inTask bool) error {
-	topics := make([]string, len(tasks))
-	for i, t := range tasks {
-		topics[i] = t.Topic
-	}
-	ok, err := a.Prompt.Confirm(ctx, fmt.Sprintf("Remove %s?", strings.Join(topics, " ")))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrAborted
-	}
-
 	var last *Task
 	var errs []error
 	for _, t := range tasks {
@@ -138,10 +126,10 @@ func (a *App) doneTasks(ctx context.Context, tasks []Task, cur Task, inTask bool
 			last = &t
 			continue
 		}
-		errs = append(errs, a.removeTask(ctx, t, removeOptions{yes: true}))
+		errs = append(errs, a.removeTask(ctx, t, removeOptions{promptForce: true}))
 	}
 	if last != nil {
-		errs = append(errs, a.removeTask(ctx, *last, removeOptions{yes: true}))
+		errs = append(errs, a.removeTask(ctx, *last, removeOptions{promptForce: true}))
 	}
 	return errors.Join(errs...)
 }

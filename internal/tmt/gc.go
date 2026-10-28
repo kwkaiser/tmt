@@ -158,7 +158,7 @@ func (a *App) GC(ctx context.Context) error {
 		return err
 	}
 	for _, t := range candidates {
-		if err := a.removeTask(ctx, t, removeOptions{yes: true}); err != nil {
+		if err := a.removeTask(ctx, t, removeOptions{}); err != nil {
 			return err
 		}
 	}
