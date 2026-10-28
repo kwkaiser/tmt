@@ -69,6 +69,11 @@ func (a *App) GC(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if s.Orphaned {
+				a.warnf("%s/%s: source repo %s is missing, skipping", t.Topic, r, src)
+				left++
+				continue
+			}
 			s.PR = prs.state(ctx, src, s.Branch)
 			clean := s.Dirty == 0 && s.PR.Done()
 			if clean {

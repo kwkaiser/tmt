@@ -48,7 +48,10 @@ func (a *App) removeTask(ctx context.Context, t Task, o removeOptions) error {
 		if needPR[i] {
 			states[i].PR = prs.state(ctx, filepath.Join(t.Base, r), states[i].Branch)
 		}
-		if s := states[i]; !s.safe() {
+		if s := states[i]; s.Orphaned {
+			a.warnf("%s source repo %s is missing, cannot check for changes", r, filepath.Join(t.Base, r))
+			blocked = true
+		} else if !s.safe() {
 			a.warnf("%s has dirty:%d unpushed:%d pr:%s", r, s.Dirty, s.Unpushed, s.PR)
 			blocked = true
 		}
@@ -75,6 +78,13 @@ func (a *App) removeTask(ctx context.Context, t Task, o removeOptions) error {
 	}
 
 	for i, r := range wts {
+		if states[i].Orphaned {
+			if err := a.Trash.Discard(filepath.Join(t.Dir, r)); err != nil {
+				return err
+			}
+			a.logf("removed orphaned %s worktree", r)
+			continue
+		}
 		src, err := a.Git.Open(filepath.Join(t.Base, r))
 		if err != nil {
 			return err

@@ -13,6 +13,7 @@ type repoState struct {
 	Own      int
 	Unpushed int
 	PR       PRState
+	Orphaned bool
 }
 
 func (p PRState) Done() bool {
@@ -20,10 +21,17 @@ func (p PRState) Done() bool {
 }
 
 func (s repoState) safe() bool {
-	return s.Dirty == 0 && (s.Unpushed == 0 || s.PR.Done())
+	return !s.Orphaned && s.Dirty == 0 && (s.Unpushed == 0 || s.PR.Done())
+}
+
+func (a *App) orphaned(t Task, name string) bool {
+	return !a.Git.IsRepo(filepath.Join(t.Base, name))
 }
 
 func (a *App) repoStatus(ctx context.Context, t Task, name string) (repoState, error) {
+	if a.orphaned(t, name) {
+		return repoState{Orphaned: true, PR: PRNone}, nil
+	}
 	wt, err := a.Git.Open(filepath.Join(t.Dir, name))
 	if err != nil {
 		return repoState{}, err
@@ -75,6 +83,9 @@ func (a *App) taskBranches(ctx context.Context) ([]branchRef, error) {
 			return nil, err
 		}
 		for _, r := range wts {
+			if a.orphaned(t, r) {
+				continue
+			}
 			wt, err := a.Git.Open(filepath.Join(t.Dir, r))
 			if err != nil {
 				return nil, err

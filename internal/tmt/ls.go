@@ -49,7 +49,7 @@ func (a *App) Ls(ctx context.Context, withPR bool) error {
 		}
 		wg.Go(func() {
 			r.state, r.err = a.repoStatus(ctx, r.task, r.repo)
-			if r.err == nil && withPR {
+			if r.err == nil && withPR && !r.state.Orphaned {
 				r.state.PR = prs.state(ctx, filepath.Join(r.task.Base, r.repo), r.state.Branch)
 			}
 		})
@@ -76,9 +76,12 @@ func (a *App) Ls(ctx context.Context, withPR bool) error {
 			cells = []string{r.task.Topic, filepath.Base(r.task.Base), session}
 		}
 		pr := "-"
-		if r.repo == "" {
+		switch {
+		case r.repo == "":
 			cells = append(cells, "-", "-", "-", "-", "-")
-		} else {
+		case r.state.Orphaned:
+			cells = append(cells, r.repo, "(source missing)", "-", "-", "-")
+		default:
 			s := r.state
 			cells = append(cells, r.repo, s.Branch, strconv.Itoa(s.Dirty), strconv.Itoa(s.Own), strconv.Itoa(s.Unpushed))
 			pr = string(s.PR)

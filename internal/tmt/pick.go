@@ -167,6 +167,13 @@ func (a *App) pickRepo(ctx context.Context, t Task) (bool, error) {
 				Display: fmt.Sprintf("%s %-*s  %s", paint(th.Main, iconMain), w, e.Name, paint(th.Dim, "main checkout")),
 			})
 		case EntryWorktree:
+			if a.orphaned(t, e.Name) {
+				items = append(items, PickItem{
+					Key:     e.Name,
+					Display: fmt.Sprintf("%s %-*s  %s", paint(th.Worktree, iconWorktree), w, e.Name, paint(th.Dim, "source missing")),
+				})
+				continue
+			}
 			repo, err := a.Git.Open(filepath.Join(t.Dir, e.Name))
 			if err != nil {
 				return false, err
@@ -239,6 +246,10 @@ func (a *App) Preview(ctx context.Context, kind, dir, name string) error {
 			return err
 		}
 		for _, r := range wts {
+			if a.orphaned(t, r) {
+				fmt.Fprintf(a.Out, "%s %s\n  %s\n\n", paint(th.Worktree, iconWorktree), r, paint(th.Dim, "source repo missing"))
+				continue
+			}
 			repo, err := a.Git.Open(filepath.Join(t.Dir, r))
 			if err != nil {
 				return err
