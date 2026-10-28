@@ -6,3 +6,4 @@ bin/
 result
 .direnv
 .claude
+internal/cli/bundled_nix.go

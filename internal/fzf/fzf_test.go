@@ -2,11 +2,9 @@ package fzf
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,8 +86,8 @@ func TestPreviewRoundTrip(t *testing.T) {
 
 func TestInput(t *testing.T) {
 	got := Input([]tmt.PickItem{{Key: "/a b", Display: "x  y"}, {Key: "c", Display: "\x1b[1mz\x1b[0m"}})
-	want := "/a b\tx  y\nc\t\x1b[1mz\x1b[0m\n"
-	if got != want {
+	want := []string{"/a b\tx  y", "c\t\x1b[1mz\x1b[0m"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
@@ -103,16 +101,16 @@ func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
 		pick tmt.Pick
-		out  string
+		out  []string
 		want tmt.Picked
 	}{
-		{"single", tmt.Pick{Items: items}, "api\tapi main\n", tmt.Picked{Items: []tmt.PickItem{items[1]}}},
-		{"empty", tmt.Pick{Items: items}, "", tmt.Picked{}},
-		{"expect enter", tmt.Pick{Items: items, Expect: []string{"ctrl-a"}}, "\nclaude\troot\n", tmt.Picked{Items: []tmt.PickItem{items[0]}}},
-		{"expect key", tmt.Pick{Items: items, Expect: []string{"ctrl-a", "ctrl-t"}}, "ctrl-a\napi\tapi main\n", tmt.Picked{Key: "ctrl-a", Items: []tmt.PickItem{items[1]}}},
-		{"expect key only", tmt.Pick{Items: items, Expect: []string{"ctrl-t"}}, "ctrl-t\n", tmt.Picked{Key: "ctrl-t"}},
-		{"multi", tmt.Pick{Items: items, Multi: true}, "web\tweb\tfeature\napi\tapi main\n", tmt.Picked{Items: []tmt.PickItem{items[2], items[1]}}},
-		{"unknown key", tmt.Pick{Items: items}, "zzz\tdisp\n", tmt.Picked{Items: []tmt.PickItem{{Key: "zzz", Display: "disp"}}}},
+		{"single", tmt.Pick{Items: items}, []string{"api\tapi main"}, tmt.Picked{Items: []tmt.PickItem{items[1]}}},
+		{"empty", tmt.Pick{Items: items}, nil, tmt.Picked{}},
+		{"expect enter", tmt.Pick{Items: items, Expect: []string{"ctrl-a"}}, []string{"", "claude\troot"}, tmt.Picked{Items: []tmt.PickItem{items[0]}}},
+		{"expect key", tmt.Pick{Items: items, Expect: []string{"ctrl-a", "ctrl-t"}}, []string{"ctrl-a", "api\tapi main"}, tmt.Picked{Key: "ctrl-a", Items: []tmt.PickItem{items[1]}}},
+		{"expect key only", tmt.Pick{Items: items, Expect: []string{"ctrl-t"}}, []string{"ctrl-t"}, tmt.Picked{Key: "ctrl-t"}},
+		{"multi", tmt.Pick{Items: items, Multi: true}, []string{"web\tweb\tfeature", "api\tapi main"}, tmt.Picked{Items: []tmt.PickItem{items[2], items[1]}}},
+		{"unknown key", tmt.Pick{Items: items}, []string{"zzz\tdisp"}, tmt.Picked{Items: []tmt.PickItem{{Key: "zzz", Display: "disp"}}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,25 +121,18 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func fake(t *testing.T, out string, code int) (*Picker, string) {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "out"), []byte(out), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(dir, "fzf")
-	script := "#!/bin/sh\n" +
-		"d=$(dirname \"$0\")\n" +
-		"cat > \"$d/stdin\"\n" +
-		"printf '%s\\n' \"$@\" > \"$d/args\"\n" +
-		"cat \"$d/out\"\n" +
-		"exit " + strconv.Itoa(code) + "\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+type call struct {
+	args, input []string
+}
+
+func fake(out []string, code int) (*Picker, *call) {
+	c := &call{}
 	p := New("", false)
-	p.Bin = bin
-	return p, dir
+	p.Run = func(args, input []string) (int, []string, error) {
+		c.args, c.input = args, input
+		return code, out, nil
+	}
+	return p, c
 }
 
 func TestPickExitCodes(t *testing.T) {
@@ -149,19 +140,19 @@ func TestPickExitCodes(t *testing.T) {
 	tests := []struct {
 		name    string
 		code    int
-		out     string
+		out     []string
 		ok      bool
 		wantErr bool
 		want    tmt.Picked
 	}{
-		{"selected", 0, "ctrl-a\nb\tB\n", true, false, tmt.Picked{Key: "ctrl-a", Items: []tmt.PickItem{items[1]}}},
-		{"no match", 1, "", false, false, tmt.Picked{}},
-		{"aborted", 130, "", false, false, tmt.Picked{}},
-		{"error", 2, "", false, true, tmt.Picked{}},
+		{"selected", 0, []string{"ctrl-a", "b\tB"}, true, false, tmt.Picked{Key: "ctrl-a", Items: []tmt.PickItem{items[1]}}},
+		{"no match", 1, nil, false, false, tmt.Picked{}},
+		{"aborted", 130, nil, false, false, tmt.Picked{}},
+		{"error", 2, nil, false, true, tmt.Picked{}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p, dir := fake(t, tc.out, tc.code)
+			p, c := fake(tc.out, tc.code)
 			got, ok, err := p.Pick(context.Background(), tmt.Pick{Label: "L", Items: items, Expect: []string{"ctrl-a"}})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
@@ -169,29 +160,34 @@ func TestPickExitCodes(t *testing.T) {
 			if ok != tc.ok || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("got (%#v, %v), want (%#v, %v)", got, ok, tc.want, tc.ok)
 			}
-			stdin, err := os.ReadFile(filepath.Join(dir, "stdin"))
-			if err != nil {
-				t.Fatal(err)
+			if !reflect.DeepEqual(c.input, []string{"a\tA", "b\tB"}) {
+				t.Fatalf("input = %q", c.input)
 			}
-			if string(stdin) != "a\tA\nb\tB\n" {
-				t.Fatalf("stdin = %q", stdin)
-			}
-			args, err := os.ReadFile(filepath.Join(dir, "args"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(args), "--expect=ctrl-a\n") || !strings.Contains(string(args), "--border-label= L \n") {
-				t.Fatalf("args = %q", args)
+			if !slices.Contains(c.args, "--expect=ctrl-a") || !slices.Contains(c.args, "--border-label= L ") {
+				t.Fatalf("args = %q", c.args)
 			}
 		})
 	}
 }
 
 func TestPickContextCanceled(t *testing.T) {
-	p, _ := fake(t, "", 0)
+	p, c := fake(nil, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, ok, err := p.Pick(ctx, tmt.Pick{}); err == nil || ok {
 		t.Fatalf("got ok=%v err=%v", ok, err)
+	}
+	if c.args != nil {
+		t.Fatal("fzf ran after cancel")
+	}
+}
+
+func TestLibraryFilter(t *testing.T) {
+	code, out, err := Library([]string{"--filter=b", `--delimiter=\t`, "--with-nth=2.."}, []string{"a\tAlpha", "b\tBravo", "c\tCharlie"})
+	if err != nil || code != 0 {
+		t.Fatalf("Library = %d, %v", code, err)
+	}
+	if !reflect.DeepEqual(out, []string{"b\tBravo"}) {
+		t.Fatalf("out = %q", out)
 	}
 }

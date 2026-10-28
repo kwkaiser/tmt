@@ -2,6 +2,10 @@ package herdr
 
 import (
 	"encoding/json"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -133,9 +137,91 @@ func TestDecodeCreated(t *testing.T) {
 }
 
 func TestCurrentSessionOutsideHerdr(t *testing.T) {
-	h := &Herdr{Bin: "/nonexistent/herdr", Getenv: func(string) string { return "" }}
+	h := &Herdr{Getenv: func(string) string { return "" }}
 	s, err := h.CurrentSession(t.Context())
 	if err != nil || s != "" {
 		t.Fatalf("CurrentSession = %q, %v; want empty", s, err)
+	}
+}
+
+func TestSocketPath(t *testing.T) {
+	tests := []struct {
+		env  map[string]string
+		want string
+	}{
+		{map[string]string{"HERDR_SOCKET_PATH": "/run/h.sock", "HOME": "/home/u"}, "/run/h.sock"},
+		{map[string]string{"XDG_CONFIG_HOME": "/cfg", "HOME": "/home/u"}, "/cfg/herdr/herdr.sock"},
+		{map[string]string{"HOME": "/home/u"}, "/home/u/.config/herdr/herdr.sock"},
+	}
+	for _, tc := range tests {
+		h := &Herdr{Getenv: func(k string) string { return tc.env[k] }}
+		if got := h.socket(); got != tc.want {
+			t.Errorf("socket(%v) = %q; want %q", tc.env, got, tc.want)
+		}
+	}
+}
+
+func serve(t *testing.T, reply string) (*Herdr, <-chan request) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "herdr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	reqs := make(chan request, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var r request
+		if err := json.NewDecoder(conn).Decode(&r); err == nil {
+			reqs <- r
+		}
+		_, _ = conn.Write([]byte(reply + "\n"))
+	}()
+	return &Herdr{Getenv: func(k string) string {
+		if k == "HERDR_SOCKET_PATH" {
+			return path
+		}
+		return ""
+	}}, reqs
+}
+
+func TestCallWorkspaceList(t *testing.T) {
+	h, reqs := serve(t, strings.ReplaceAll(workspaceListJSON, "\n", ""))
+	ok, err := h.HasSession(t.Context(), "tmt")
+	if err != nil || !ok {
+		t.Fatalf("HasSession = %v, %v; want true", ok, err)
+	}
+	if r := <-reqs; r.Method != "workspace.list" {
+		t.Fatalf("method = %q", r.Method)
+	}
+}
+
+func TestCallParams(t *testing.T) {
+	h, reqs := serve(t, `{"id":"tmt","result":{"type":"ok"}}`)
+	if err := h.SelectWindow(t.Context(), "wF:t2"); err != nil {
+		t.Fatal(err)
+	}
+	r := <-reqs
+	params, _ := json.Marshal(r.Params)
+	if r.Method != "tab.focus" || string(params) != `{"tab_id":"wF:t2"}` {
+		t.Fatalf("request = %s %s", r.Method, params)
+	}
+}
+
+func TestCallError(t *testing.T) {
+	h, _ := serve(t, `{"id":"tmt","error":{"code":"tab_not_found","message":"tab x not found"}}`)
+	err := h.SelectWindow(t.Context(), "x")
+	if err == nil || !strings.Contains(err.Error(), "tab_not_found") {
+		t.Fatalf("err = %v; want tab_not_found", err)
 	}
 }

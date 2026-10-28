@@ -199,6 +199,10 @@ func run(ctx context.Context, cmd *cobra.Command, args []string, stderr io.Write
 }
 
 func Execute() int {
+	if err := applyBundled(bundledPath, bundledEnv, os.Getenv, os.LookupEnv, os.Setenv); err != nil {
+		fmt.Fprintf(os.Stderr, "tmt: %v\n", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return run(ctx, newRootCmd(newApp), os.Args[1:], os.Stderr)

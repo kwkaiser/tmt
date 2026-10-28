@@ -23,11 +23,7 @@ func New(getenv func(string) string) (tmt.Mux, error) {
 	case Tmux:
 		return &tmux.Tmux{Bin: "tmux", Getenv: getenv}, nil
 	case Herdr:
-		bin := getenv("HERDR_BIN_PATH")
-		if bin == "" {
-			bin = "herdr"
-		}
-		return &herdr.Herdr{Bin: bin, SortBin: "herdr-sort-tabs", Getenv: getenv}, nil
+		return &herdr.Herdr{SortBin: "herdr-sort-tabs", Getenv: getenv}, nil
 	default:
 		return nil, fmt.Errorf("unknown mux %q", kind)
 	}

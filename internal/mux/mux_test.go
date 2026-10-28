@@ -41,26 +41,22 @@ func TestNewTmux(t *testing.T) {
 }
 
 func TestNewHerdr(t *testing.T) {
-	m, err := New(env(map[string]string{"HERDR_ENV": "1", "HERDR_BIN_PATH": "/opt/herdr"}))
+	m, err := New(env(map[string]string{"HERDR_ENV": "1"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, ok := m.(*herdr.Herdr)
-	if !ok {
+	if _, ok := m.(*herdr.Herdr); !ok {
 		t.Fatalf("New = %T; want *herdr.Herdr", m)
-	}
-	if h.Bin != "/opt/herdr" {
-		t.Fatalf("Bin = %q; want /opt/herdr", h.Bin)
 	}
 }
 
-func TestNewHerdrDefaultBin(t *testing.T) {
+func TestNewHerdrExplicit(t *testing.T) {
 	m, err := New(env(map[string]string{"TMT_MUX": "herdr"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h := m.(*herdr.Herdr); h.Bin != "herdr" {
-		t.Fatalf("Bin = %q; want herdr", h.Bin)
+	if _, ok := m.(*herdr.Herdr); !ok {
+		t.Fatalf("New = %T; want *herdr.Herdr", m)
 	}
 }
 

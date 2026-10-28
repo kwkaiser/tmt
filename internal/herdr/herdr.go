@@ -1,27 +1,25 @@
 package herdr
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
+	"time"
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
 
-const (
-	defaultBin     = "herdr"
-	defaultSortBin = "herdr-sort-tabs"
-)
+const defaultSortBin = "herdr-sort-tabs"
 
 type Herdr struct {
-	Bin     string
 	SortBin string
 	Getenv  func(string) string
 }
@@ -29,11 +27,7 @@ type Herdr struct {
 var _ tmt.Mux = (*Herdr)(nil)
 
 func New() *Herdr {
-	bin := os.Getenv("HERDR_BIN_PATH")
-	if bin == "" {
-		bin = defaultBin
-	}
-	return &Herdr{Bin: bin, SortBin: defaultSortBin, Getenv: os.Getenv}
+	return &Herdr{SortBin: defaultSortBin, Getenv: os.Getenv}
 }
 
 type workspace struct {
@@ -76,13 +70,6 @@ type workspaceCreated struct {
 	} `json:"result"`
 }
 
-func (h *Herdr) bin() string {
-	if h.Bin == "" {
-		return defaultBin
-	}
-	return h.Bin
-}
-
 func (h *Herdr) getenv(key string) string {
 	if h.Getenv == nil {
 		return os.Getenv(key)
@@ -90,35 +77,66 @@ func (h *Herdr) getenv(key string) string {
 	return h.Getenv(key)
 }
 
-func (h *Herdr) run(ctx context.Context, args ...string) ([]byte, error) {
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.bin(), args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		name := strings.Join(args[:min(2, len(args))], " ")
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("herdr %s: %w: %s", name, err, msg)
-		}
-		return nil, fmt.Errorf("herdr %s: %w", name, err)
+func (h *Herdr) socket() string {
+	if p := h.getenv("HERDR_SOCKET_PATH"); p != "" {
+		return p
 	}
-	return stdout.Bytes(), nil
+	dir := h.getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		dir = filepath.Join(h.getenv("HOME"), ".config")
+	}
+	return filepath.Join(dir, "herdr", "herdr.sock")
 }
 
-func (h *Herdr) runJSON(ctx context.Context, v any, args ...string) error {
-	out, err := h.run(ctx, args...)
+type request struct {
+	ID     string `json:"id"`
+	Method string `json:"method"`
+	Params any    `json:"params"`
+}
+
+type errorResponse struct {
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func (h *Herdr) call(ctx context.Context, v any, method string, params any) error {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", h.socket())
 	if err != nil {
-		return err
+		return fmt.Errorf("herdr %s: %w", method, err)
 	}
-	if err := json.Unmarshal(out, v); err != nil {
-		return fmt.Errorf("herdr %s: decode: %w", strings.Join(args[:min(2, len(args))], " "), err)
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+
+	if err := json.NewEncoder(conn).Encode(request{ID: "tmt", Method: method, Params: params}); err != nil {
+		return fmt.Errorf("herdr %s: %w", method, err)
+	}
+	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	if err != nil {
+		return fmt.Errorf("herdr %s: %w", method, err)
+	}
+	var e errorResponse
+	if err := json.Unmarshal(line, &e); err != nil {
+		return fmt.Errorf("herdr %s: decode: %w", method, err)
+	}
+	if e.Error != nil {
+		return fmt.Errorf("herdr %s: %s: %s", method, e.Error.Code, e.Error.Message)
+	}
+	if v == nil {
+		return nil
+	}
+	if err := json.Unmarshal(line, v); err != nil {
+		return fmt.Errorf("herdr %s: decode: %w", method, err)
 	}
 	return nil
 }
 
 func (h *Herdr) workspaces(ctx context.Context) ([]workspace, error) {
 	var l workspaceList
-	if err := h.runJSON(ctx, &l, "workspace", "list"); err != nil {
+	if err := h.call(ctx, &l, "workspace.list", struct{}{}); err != nil {
 		return nil, err
 	}
 	return l.Result.Workspaces, nil
@@ -126,7 +144,7 @@ func (h *Herdr) workspaces(ctx context.Context) ([]workspace, error) {
 
 func (h *Herdr) tabs(ctx context.Context, ws string) ([]tab, error) {
 	var l tabList
-	if err := h.runJSON(ctx, &l, "tab", "list", "--workspace", ws); err != nil {
+	if err := h.call(ctx, &l, "tab.list", map[string]string{"workspace_id": ws}); err != nil {
 		return nil, err
 	}
 	return l.Result.Tabs, nil
@@ -234,13 +252,17 @@ func (h *Herdr) EnsureSession(ctx context.Context, s tmt.Session) error {
 		return err
 	}
 	var c workspaceCreated
-	if err := h.runJSON(ctx, &c, "workspace", "create", "--cwd", s.Dir, "--label", s.Name, "--no-focus"); err != nil {
+	if err := h.call(ctx, &c, "workspace.create", map[string]any{"cwd": s.Dir, "label": s.Name, "focus": false}); err != nil {
 		return err
 	}
-	if _, err := h.run(ctx, "tab", "rename", c.Result.Tab.ID, tabLabel(1, s.RootName)); err != nil {
+	if err := h.call(ctx, nil, "tab.rename", map[string]string{"tab_id": c.Result.Tab.ID, "label": tabLabel(1, s.RootName)}); err != nil {
 		return err
 	}
-	if _, err := h.run(ctx, "pane", "run", c.Result.RootPane.ID, "clear && "+s.Command); err != nil {
+	if err := h.call(ctx, nil, "pane.send_input", map[string]any{
+		"pane_id": c.Result.RootPane.ID,
+		"text":    "clear && " + s.Command,
+		"keys":    []string{"Enter"},
+	}); err != nil {
 		return err
 	}
 	for _, w := range s.Windows {
@@ -259,13 +281,12 @@ func (h *Herdr) Attach(ctx context.Context, name string) error {
 	if id == "" {
 		return fmt.Errorf("herdr workspace %q not found", name)
 	}
-	_, err = h.run(ctx, "workspace", "focus", id)
-	return err
+	return h.call(ctx, nil, "workspace.focus", map[string]string{"workspace_id": id})
 }
 
 func (h *Herdr) KillSession(ctx context.Context, name string) error {
 	if id, err := h.workspaceID(ctx, name); err == nil && id != "" {
-		_, _ = h.run(ctx, "workspace", "close", id)
+		_ = h.call(ctx, nil, "workspace.close", map[string]string{"workspace_id": id})
 	}
 	return nil
 }
@@ -296,7 +317,12 @@ func (h *Herdr) NewWindow(ctx context.Context, session string, w tmt.Window) (tm
 		return "", err
 	}
 	var c tabCreated
-	if err := h.runJSON(ctx, &c, "tab", "create", "--workspace", ws, "--cwd", w.Dir, "--label", tabLabel(nextIndex(tabs), w.Name), "--no-focus"); err != nil {
+	if err := h.call(ctx, &c, "tab.create", map[string]any{
+		"workspace_id": ws,
+		"cwd":          w.Dir,
+		"label":        tabLabel(nextIndex(tabs), w.Name),
+		"focus":        false,
+	}); err != nil {
 		return "", err
 	}
 	if c.Result.Tab.ID == "" {
@@ -319,11 +345,9 @@ func (h *Herdr) sortTabs(ctx context.Context, ws string) {
 }
 
 func (h *Herdr) SelectWindow(ctx context.Context, id tmt.WindowID) error {
-	_, err := h.run(ctx, "tab", "focus", string(id))
-	return err
+	return h.call(ctx, nil, "tab.focus", map[string]string{"tab_id": string(id)})
 }
 
 func (h *Herdr) KillWindow(ctx context.Context, id tmt.WindowID) error {
-	_, err := h.run(ctx, "tab", "close", string(id))
-	return err
+	return h.call(ctx, nil, "tab.close", map[string]string{"tab_id": string(id)})
 }
