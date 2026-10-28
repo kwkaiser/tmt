@@ -51,8 +51,28 @@ func (o *Opener) Find(ctx context.Context, path string) (tmt.Repo, bool, error) 
 }
 
 func (o *Opener) IsRepo(path string) bool {
-	_, err := os.Stat(filepath.Join(path, ".git"))
-	return err == nil
+	dotgit := filepath.Join(path, ".git")
+	fi, err := os.Stat(dotgit)
+	if err != nil {
+		return false
+	}
+	if fi.IsDir() {
+		return true
+	}
+	data, err := os.ReadFile(dotgit)
+	if err != nil {
+		return false
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return false
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(path, gitdir)
+	}
+	fi, err = os.Stat(gitdir)
+	return err == nil && fi.IsDir()
 }
 
 type Repo struct {

@@ -420,7 +420,12 @@ func TestOpener(t *testing.T) {
 
 	wt := filepath.Join(f.root, "wt")
 	git(t, f.clone, "worktree", "add", "--quiet", "-b", "w", wt)
-	for path, want := range map[string]bool{f.clone: true, wt: true, sub: false, outside: false} {
+	stale := filepath.Join(f.root, "stale")
+	git(t, f.clone, "worktree", "add", "--quiet", "-b", "s", stale)
+	if err := os.RemoveAll(filepath.Join(f.clone, ".git", "worktrees", "stale")); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]bool{f.clone: true, wt: true, stale: false, sub: false, outside: false} {
 		if got := o.IsRepo(path); got != want {
 			t.Errorf("IsRepo(%s) = %v, want %v", path, got, want)
 		}

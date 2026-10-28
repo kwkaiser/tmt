@@ -80,7 +80,7 @@ func (a *App) Ls(ctx context.Context, withPR bool) error {
 		case r.repo == "":
 			cells = append(cells, "-", "-", "-", "-", "-")
 		case r.state.Orphaned:
-			cells = append(cells, r.repo, "(source missing)", "-", "-", "-")
+			cells = append(cells, r.repo, "(orphaned)", "-", "-", "-")
 		default:
 			s := r.state
 			cells = append(cells, r.repo, s.Branch, strconv.Itoa(s.Dirty), strconv.Itoa(s.Own), strconv.Itoa(s.Unpushed))

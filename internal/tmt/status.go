@@ -25,7 +25,7 @@ func (s repoState) safe() bool {
 }
 
 func (a *App) orphaned(t Task, name string) bool {
-	return !a.Git.IsRepo(filepath.Join(t.Base, name))
+	return !a.Git.IsRepo(filepath.Join(t.Base, name)) || !a.Git.IsRepo(filepath.Join(t.Dir, name))
 }
 
 func (a *App) repoStatus(ctx context.Context, t Task, name string) (repoState, error) {

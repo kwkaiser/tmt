@@ -49,7 +49,7 @@ func (a *App) removeTask(ctx context.Context, t Task, o removeOptions) error {
 			states[i].PR = prs.state(ctx, filepath.Join(t.Base, r), states[i].Branch)
 		}
 		if s := states[i]; s.Orphaned {
-			a.warnf("%s source repo %s is missing, cannot check for changes", r, filepath.Join(t.Base, r))
+			a.warnf("%s is orphaned from %s, cannot check for changes", r, filepath.Join(t.Base, r))
 			blocked = true
 		} else if !s.safe() {
 			a.warnf("%s has dirty:%d unpushed:%d pr:%s", r, s.Dirty, s.Unpushed, s.PR)

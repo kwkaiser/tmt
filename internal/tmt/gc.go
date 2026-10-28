@@ -70,7 +70,7 @@ func (a *App) GC(ctx context.Context) error {
 				return err
 			}
 			if s.Orphaned {
-				a.warnf("%s/%s: source repo %s is missing, skipping", t.Topic, r, src)
+				a.warnf("%s/%s is orphaned from %s, skipping", t.Topic, r, src)
 				left++
 				continue
 			}
