@@ -23,7 +23,7 @@ tmt ls -p                             # tasks, worktree status, PR state
 tmt switch                            # fuzzy-pick any task and open it
 tmt open work-auth
 tmt fresh work                        # fetch + fast-forward default branches
-tmt done work-auth                    # remove task (refuses if work is unpushed; -f to force)
+tmt done work-auth                    # remove task (asks to force if work is unpushed; -f to force, -y to refuse)
 tmt gc                                # remove tasks whose PRs are merged/closed
 ```
 

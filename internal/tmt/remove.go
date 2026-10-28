@@ -128,7 +128,7 @@ func (a *App) Done(ctx context.Context, o DoneOptions) error {
 	if err != nil {
 		return err
 	}
-	return a.removeTask(ctx, t, removeOptions{force: o.Force, yes: o.Yes})
+	return a.removeTask(ctx, t, removeOptions{force: o.Force, yes: true, promptForce: !o.Yes})
 }
 
 func (a *App) Close(ctx context.Context) error {

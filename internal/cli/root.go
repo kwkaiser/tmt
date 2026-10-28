@@ -151,7 +151,7 @@ func newRootCmd(build factory) *cobra.Command {
 			return a.Done(ctx, o)
 		})
 	doneCmd.Flags().BoolVarP(&done.Force, "force", "f", false, "remove even with uncommitted or unpushed work")
-	doneCmd.Flags().BoolVarP(&done.Yes, "yes", "y", false, "skip confirmation")
+	doneCmd.Flags().BoolVarP(&done.Yes, "yes", "y", false, "never prompt; refuse instead of offering to force")
 	root.AddCommand(doneCmd)
 
 	root.AddCommand(sub("close", "close the current session, running tmt done if it belongs to a task", 0, 0,
