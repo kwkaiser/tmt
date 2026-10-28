@@ -41,6 +41,7 @@ type Repo interface {
 
 	RevParse(ctx context.Context, ref string) (string, bool, error)
 	CountCommits(ctx context.Context, from, to string) (int, error)
+	Branch(ctx context.Context) (string, error)
 	Status(ctx context.Context, untracked bool) (Status, error)
 
 	AddWorktree(ctx context.Context, opts AddWorktree) error

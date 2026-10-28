@@ -90,11 +90,11 @@ func (a *App) taskBranches(ctx context.Context) ([]branchRef, error) {
 			if err != nil {
 				return nil, err
 			}
-			st, err := wt.Status(ctx, false)
+			branch, err := wt.Branch(ctx)
 			if err != nil {
 				return nil, err
 			}
-			ref := branchRef{Src: filepath.Join(t.Base, r), Branch: st.Branch}
+			ref := branchRef{Src: filepath.Join(t.Base, r), Branch: branch}
 			if !seen[ref] {
 				seen[ref] = true
 				refs = append(refs, ref)

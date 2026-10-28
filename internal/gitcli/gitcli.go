@@ -227,8 +227,12 @@ func (r *Repo) CountCommits(ctx context.Context, from, to string) (int, error) {
 	return n, nil
 }
 
+func (r *Repo) Branch(ctx context.Context) (string, error) {
+	return r.line(ctx, "branch", "--show-current")
+}
+
 func (r *Repo) Status(ctx context.Context, untracked bool) (tmt.Status, error) {
-	branch, err := r.line(ctx, "branch", "--show-current")
+	branch, err := r.Branch(ctx)
 	if err != nil {
 		return tmt.Status{}, err
 	}

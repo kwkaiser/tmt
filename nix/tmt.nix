@@ -1,6 +1,6 @@
 { lib
 , buildGoModule
-, makeWrapper
+, makeBinaryWrapper
 , tmux
 , git
 , fzf
@@ -34,7 +34,7 @@ buildGoModule {
     "-X git.kwkaiser.io/kwkaiser/tmt/internal/cli.version=${version}"
   ];
 
-  nativeBuildInputs = [ makeWrapper ];
+  nativeBuildInputs = [ makeBinaryWrapper ];
 
   postInstall = lib.optionalString (mainProgram != "tmt") ''
     mv $out/bin/tmt $out/bin/${mainProgram}

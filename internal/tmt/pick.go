@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func (a *App) previewArgs(args ...string) []string {
@@ -63,16 +64,17 @@ func (a *App) pickTask(ctx context.Context, cur Task, inTask bool) (bool, error)
 		bw = max(bw, len(filepath.Base(t.Base)))
 	}
 
+	live, err := a.liveSessions(ctx)
+	if err != nil {
+		return false, err
+	}
+
 	th := a.Config.Theme
 	byDir := make(map[string]Task, len(tasks))
 	items := make([]PickItem, 0, len(tasks))
 	for _, t := range tasks {
-		up, err := a.Mux.HasSession(ctx, t.Session)
-		if err != nil {
-			return false, err
-		}
 		state := paint(th.Main, "closed")
-		if up {
+		if live[t.Session] {
 			state = paint(th.Worktree, "running")
 		}
 		byDir[t.Dir] = t
@@ -154,12 +156,33 @@ func (a *App) pickRepo(ctx context.Context, t Task) (bool, error) {
 		w = max(w, len(e.Name))
 	}
 
+	branches := make([]string, len(entries))
+	errs := make([]error, len(entries))
+	var wg sync.WaitGroup
+	for i, e := range entries {
+		if e.Kind != EntryWorktree || a.orphaned(t, e.Name) {
+			continue
+		}
+		wg.Go(func() {
+			repo, err := a.Git.Open(filepath.Join(t.Dir, e.Name))
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			branches[i], errs[i] = repo.Branch(ctx)
+		})
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return false, err
+	}
+
 	th := a.Config.Theme
 	items := []PickItem{{
 		Key:     rootWindow,
 		Display: fmt.Sprintf("%s %-*s  %s", paint(th.Root, iconRoot), w, rootWindow, paint(th.Dim, "task root")),
 	}}
-	for _, e := range entries {
+	for i, e := range entries {
 		switch e.Kind {
 		case EntryLink:
 			items = append(items, PickItem{
@@ -167,24 +190,13 @@ func (a *App) pickRepo(ctx context.Context, t Task) (bool, error) {
 				Display: fmt.Sprintf("%s %-*s  %s", paint(th.Main, iconMain), w, e.Name, paint(th.Dim, "main checkout")),
 			})
 		case EntryWorktree:
+			label := paint(th.Worktree, branches[i])
 			if a.orphaned(t, e.Name) {
-				items = append(items, PickItem{
-					Key:     e.Name,
-					Display: fmt.Sprintf("%s %-*s  %s", paint(th.Worktree, iconWorktree), w, e.Name, paint(th.Dim, "orphaned")),
-				})
-				continue
-			}
-			repo, err := a.Git.Open(filepath.Join(t.Dir, e.Name))
-			if err != nil {
-				return false, err
-			}
-			st, err := repo.Status(ctx, false)
-			if err != nil {
-				return false, err
+				label = paint(th.Dim, "orphaned")
 			}
 			items = append(items, PickItem{
 				Key:     e.Name,
-				Display: fmt.Sprintf("%s %-*s  %s", paint(th.Worktree, iconWorktree), w, e.Name, paint(th.Worktree, st.Branch)),
+				Display: fmt.Sprintf("%s %-*s  %s", paint(th.Worktree, iconWorktree), w, e.Name, label),
 			})
 		}
 	}
@@ -245,21 +257,33 @@ func (a *App) Preview(ctx context.Context, kind, dir, name string) error {
 		if err != nil {
 			return err
 		}
-		for _, r := range wts {
+		statuses := make([]string, len(wts))
+		errs := make([]error, len(wts))
+		var wg sync.WaitGroup
+		for i, r := range wts {
+			if a.orphaned(t, r) {
+				continue
+			}
+			wg.Go(func() {
+				repo, err := a.Git.Open(filepath.Join(t.Dir, r))
+				if err != nil {
+					errs[i] = err
+					return
+				}
+				statuses[i], errs[i] = repo.RenderStatus(ctx)
+			})
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
+			return err
+		}
+		for i, r := range wts {
 			if a.orphaned(t, r) {
 				fmt.Fprintf(a.Out, "%s %s\n  %s\n\n", paint(th.Worktree, iconWorktree), r, paint(th.Dim, "orphaned from source repo"))
 				continue
 			}
-			repo, err := a.Git.Open(filepath.Join(t.Dir, r))
-			if err != nil {
-				return err
-			}
-			status, err := repo.RenderStatus(ctx)
-			if err != nil {
-				return err
-			}
 			fmt.Fprintf(a.Out, "%s %s\n", paint(th.Worktree, iconWorktree), r)
-			for line := range strings.SplitSeq(strings.TrimRight(status, "\n"), "\n") {
+			for line := range strings.SplitSeq(strings.TrimRight(statuses[i], "\n"), "\n") {
 				fmt.Fprintf(a.Out, "  %s\n", line)
 			}
 			fmt.Fprintln(a.Out)

@@ -180,6 +180,18 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 	return a.Agent.WriteContext(ctx, t, wts)
 }
 
+func (a *App) liveSessions(ctx context.Context) (map[string]bool, error) {
+	names, err := a.Mux.Sessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]bool, len(names))
+	for _, n := range names {
+		live[n] = true
+	}
+	return live, nil
+}
+
 func (a *App) ensureSession(ctx context.Context, t Task) error {
 	has, err := a.Mux.HasSession(ctx, t.Session)
 	if err != nil {

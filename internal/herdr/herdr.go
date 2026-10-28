@@ -216,6 +216,18 @@ func (h *Herdr) HasSession(ctx context.Context, name string) (bool, error) {
 	return id != "", nil
 }
 
+func (h *Herdr) Sessions(ctx context.Context) ([]string, error) {
+	ws, err := h.workspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(ws))
+	for i, w := range ws {
+		names[i] = w.Label
+	}
+	return names, nil
+}
+
 func (h *Herdr) EnsureSession(ctx context.Context, s tmt.Session) error {
 	has, err := h.HasSession(ctx, s.Name)
 	if err != nil || has {

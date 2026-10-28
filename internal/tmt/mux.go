@@ -26,6 +26,7 @@ type Session struct {
 type Mux interface {
 	CurrentSession(ctx context.Context) (string, error)
 	HasSession(ctx context.Context, name string) (bool, error)
+	Sessions(ctx context.Context) ([]string, error)
 	EnsureSession(ctx context.Context, s Session) error
 	Attach(ctx context.Context, name string) error
 	KillSession(ctx context.Context, name string) error

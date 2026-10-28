@@ -95,6 +95,23 @@ func (t *Tmux) HasSession(ctx context.Context, name string) (bool, error) {
 	return false, err
 }
 
+func (t *Tmux) Sessions(ctx context.Context) ([]string, error) {
+	out, err := t.run(ctx, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		if exited(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line != "" {
+			names = append(names, line)
+		}
+	}
+	return names, nil
+}
+
 func (t *Tmux) EnsureSession(ctx context.Context, s tmt.Session) error {
 	has, err := t.HasSession(ctx, s.Name)
 	if err != nil {

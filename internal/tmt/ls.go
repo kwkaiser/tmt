@@ -56,6 +56,11 @@ func (a *App) Ls(ctx context.Context, withPR bool) error {
 	}
 	wg.Wait()
 
+	live, err := a.liveSessions(ctx)
+	if err != nil {
+		return err
+	}
+
 	header := []string{"TASK", "BASE", "SESSION", "REPO", "BRANCH", "DIRTY", "COMMITS", "UNPUSHED"}
 	if withPR {
 		header = append(header, "PR")
@@ -68,9 +73,7 @@ func (a *App) Ls(ctx context.Context, withPR bool) error {
 		cells := []string{"", "", ""}
 		if r.first {
 			session := "down"
-			if up, err := a.Mux.HasSession(ctx, r.task.Session); err != nil {
-				return err
-			} else if up {
+			if live[r.task.Session] {
 				session = "up"
 			}
 			cells = []string{r.task.Topic, filepath.Base(r.task.Base), session}
