@@ -22,7 +22,7 @@ runs:
         printf 'Host kwkaiser.io\n  User nixbuilder\n  IdentityFile /tmp/nix-remote-builder-key\n' | \
           sudo tee /etc/ssh/ssh_config.d/nix-remote-builder.conf >/dev/null
 
-    - uses: DeterminateSystems/nix-installer-action@main
+    - uses: DeterminateSystems/determinate-nix-action@v3.24.1
       with:
         extra-conf: |
           builders = ssh-ng://nixbuilder@kwkaiser.io x86_64-linux /tmp/nix-remote-builder-key 2 1 - - -

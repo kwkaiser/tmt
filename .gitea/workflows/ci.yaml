@@ -43,9 +43,9 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build ./...
           GOOS=linux GOARCH=arm64 go build ./...
 
-      # - uses: ./.gitea/actions/nix
-      #   with:
-      #     builder-key: ${{ secrets.NIX_REMOTE_BUILDER_KEY }}
+      - uses: ./.gitea/actions/nix
+        with:
+          builder-key: ${{ secrets.NIX_REMOTE_BUILDER_KEY }}
 
-      # - name: Build
-      #   run: nix build --no-link .#tmt
+      - name: Go modules match vendorHash
+        run: nix build --no-link .#tmt.goModules

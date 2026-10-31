@@ -14,7 +14,7 @@ update() {
     printf '%s\n' "$out" >&2
     exit 1
   fi
-  sed -i.bak "s|$key = .*;|$key = \"$got\";|" "$file"
+  sed -i.bak "s|$key = \".*\";|$key = \"$got\";|" "$file"
   rm "$file.bak"
   nix build --no-link ".#$attr"
   echo "$key in $file updated to $got"

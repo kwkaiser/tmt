@@ -1,0 +1,84 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "nix": {
+    "enabled": true
+  },
+  "platformAutomerge": true,
+  "automergeType": "pr",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": [
+      "before 6am on monday"
+    ]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.gitea/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "go run (?<depName>github\\.com/golangci/golangci-lint/v2)/cmd/golangci-lint@(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "go"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "gomod"
+      ],
+      "postUpgradeTasks": {
+        "commands": [
+          "./nix/update-hashes.sh"
+        ],
+        "fileFilters": [
+          "nix/tmt.nix"
+        ],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "go dependencies"
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "workflow actions"
+    },
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "automerge": true
+    },
+    {
+      "matchCurrentVersion": "/^v?0\\./",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": false
+    }
+  ]
+}
