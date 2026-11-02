@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,10 +96,17 @@ func (e *exitError) Error() string {
 }
 
 func (r *Repo) run(ctx context.Context, args ...string) (string, error) {
+	return r.runTee(ctx, nil, args...)
+}
+
+func (r *Repo) runTee(ctx context.Context, tee io.Writer, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.Bin, append([]string{"-C", r.Dir}, args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if tee != nil {
+		cmd.Stderr = io.MultiWriter(&stderr, tee)
+	}
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && ctx.Err() == nil {
@@ -147,12 +155,15 @@ func (r *Repo) RemoteURL(ctx context.Context, remote string) (string, error) {
 	return r.line(ctx, "remote", "get-url", remote)
 }
 
-func (r *Repo) Fetch(ctx context.Context, prune bool) error {
-	args := []string{"fetch", "--quiet"}
+func (r *Repo) Fetch(ctx context.Context, prune bool, progress io.Writer) error {
+	args := []string{"fetch"}
+	if progress == nil {
+		args = append(args, "--quiet")
+	}
 	if prune {
 		args = append(args, "--prune")
 	}
-	_, err := r.run(ctx, append(args, "origin")...)
+	_, err := r.runTee(ctx, progress, append(args, "origin")...)
 	return err
 }
 

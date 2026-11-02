@@ -1,9 +1,11 @@
 package tmt
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,10 +34,17 @@ func (a *App) Fresh(ctx context.Context, query string) error {
 	if err != nil {
 		return err
 	}
+	a.logf("fetching %d repos in %s", len(repos), base)
 	rows := make([][]string, len(repos))
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for i, r := range repos {
-		wg.Go(func() { rows[i] = a.freshRepo(ctx, filepath.Join(base, r)) })
+		wg.Go(func() {
+			out := &lineWriter{mu: &mu, w: a.Err, prefix: r + ": "}
+			rows[i] = a.freshRepo(ctx, filepath.Join(base, r), out)
+			out.flush()
+			out.line(rows[i][2])
+		})
 	}
 	wg.Wait()
 	if err := a.table(rows); err != nil {
@@ -64,7 +73,7 @@ func (a *App) Fresh(ctx context.Context, query string) error {
 	return nil
 }
 
-func (a *App) freshRepo(ctx context.Context, src string) []string {
+func (a *App) freshRepo(ctx context.Context, src string, progress io.Writer) []string {
 	name := filepath.Base(src)
 	row := func(branch, msg string) []string { return []string{name, branch, msg} }
 
@@ -72,7 +81,7 @@ func (a *App) freshRepo(ctx context.Context, src string) []string {
 	if err != nil {
 		return row("-", err.Error())
 	}
-	if err := repo.Fetch(ctx, true); err != nil {
+	if err := repo.Fetch(ctx, true, progress); err != nil {
 		return row("-", "fetch failed")
 	}
 	def, err := repo.DefaultRef(ctx)
@@ -129,4 +138,38 @@ func (a *App) freshRepo(ctx context.Context, src string) []string {
 	default:
 		return row(def, fmt.Sprintf("+%d commits", n))
 	}
+}
+
+type lineWriter struct {
+	mu     *sync.Mutex
+	w      io.Writer
+	prefix string
+	buf    []byte
+}
+
+func (l *lineWriter) Write(p []byte) (int, error) {
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexAny(l.buf, "\r\n")
+		if i < 0 {
+			return len(p), nil
+		}
+		l.line(string(l.buf[:i]))
+		l.buf = l.buf[i+1:]
+	}
+}
+
+func (l *lineWriter) flush() {
+	l.line(string(l.buf))
+	l.buf = nil
+}
+
+func (l *lineWriter) line(s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	fmt.Fprintln(l.w, l.prefix+s)
 }

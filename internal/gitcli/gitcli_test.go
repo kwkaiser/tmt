@@ -129,13 +129,13 @@ func TestRemoteURLAndFetch(t *testing.T) {
 	}
 
 	git(t, f.seed, "push", "--quiet", "origin", "--delete", "feature")
-	if err := r.Fetch(ctx, false); err != nil {
+	if err := r.Fetch(ctx, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if has, _ := r.HasRemoteBranch(ctx, "feature"); !has {
 		t.Fatal("feature pruned without --prune")
 	}
-	if err := r.Fetch(ctx, true); err != nil {
+	if err := r.Fetch(ctx, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if has, _ := r.HasRemoteBranch(ctx, "feature"); has {
@@ -298,7 +298,7 @@ func TestFastForwardCheckedOut(t *testing.T) {
 	f := setup(t)
 	r := open(t, f.clone)
 	pushMain(t, f, "c")
-	if err := r.Fetch(ctx, false); err != nil {
+	if err := r.Fetch(ctx, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.FastForward(ctx, "main", "origin/main"); err != nil {
@@ -318,7 +318,7 @@ func TestFastForwardNotCheckedOut(t *testing.T) {
 	r := open(t, f.clone)
 	git(t, f.clone, "checkout", "--quiet", "-b", "other")
 	pushMain(t, f, "c")
-	if err := r.Fetch(ctx, false); err != nil {
+	if err := r.Fetch(ctx, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.FastForward(ctx, "main", "origin/main"); err != nil {
@@ -338,7 +338,7 @@ func TestFastForwardDiverged(t *testing.T) {
 	r := open(t, f.clone)
 	pushMain(t, f, "c")
 	commit(t, f.clone, "local")
-	if err := r.Fetch(ctx, false); err != nil {
+	if err := r.Fetch(ctx, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.FastForward(ctx, "main", "origin/main"); err == nil {

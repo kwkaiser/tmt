@@ -42,7 +42,7 @@ func (a *App) addRepo(ctx context.Context, t Task, name string, created *[]creat
 	if err != nil {
 		return err
 	}
-	if err := repo.Fetch(ctx, false); err != nil {
+	if err := repo.Fetch(ctx, false, nil); err != nil {
 		a.warnf("fetch failed for %s, using local refs", name)
 	}
 	start, err := repo.DefaultRef(ctx)

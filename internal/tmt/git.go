@@ -1,6 +1,9 @@
 package tmt
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 type Worktree struct {
 	Path   string
@@ -30,7 +33,7 @@ type Status struct {
 type Repo interface {
 	Path() string
 	RemoteURL(ctx context.Context, remote string) (string, error)
-	Fetch(ctx context.Context, prune bool) error
+	Fetch(ctx context.Context, prune bool, progress io.Writer) error
 	DefaultRef(ctx context.Context) (string, error)
 
 	HasBranch(ctx context.Context, branch string) (bool, error)
