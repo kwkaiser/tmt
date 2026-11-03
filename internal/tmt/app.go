@@ -215,7 +215,7 @@ func (a *App) ensureSession(ctx context.Context, t Task) error {
 		Dir:      t.Dir,
 		Owner:    t.Dir,
 		RootName: rootWindow,
-		Command:  a.Agent.Command(),
+		Command:  a.Agent.Command(t.Dir),
 		Windows:  windows,
 	})
 }

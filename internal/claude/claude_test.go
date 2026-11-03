@@ -48,8 +48,13 @@ func trusted(m map[string]any, dir string) bool {
 }
 
 func TestCommand(t *testing.T) {
-	if got := New("ccp").Command(); got != "ccp" {
+	dir := t.TempDir()
+	if got := New("ccp").Command(dir); got != "ccp" {
 		t.Fatalf("Command = %q; want ccp", got)
+	}
+	writeFile(t, filepath.Join(dir, ".env.mcp"), "A=1\n")
+	if got, want := New("ccp").Command(dir), "(set -a && . ./.env.mcp && set +a && exec ccp)"; got != want {
+		t.Fatalf("Command = %q; want %q", got, want)
 	}
 }
 
@@ -251,6 +256,51 @@ func TestWriteContextInvalidMCP(t *testing.T) {
 	err := New("ccp").WriteContext(context.Background(), tmt.Task{Dir: dir, Topic: "foo"}, nil)
 	if err == nil || !strings.Contains(err.Error(), bad) {
 		t.Fatalf("err = %v; want error naming %s", err, bad)
+	}
+}
+
+func TestWriteContextMergesEnv(t *testing.T) {
+	dir := t.TempDir()
+	shared := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a", ".env.mcp"), "A=1")
+	writeFile(t, filepath.Join(shared, "c", ".env.mcp"), "export C=3\n")
+	if err := os.Symlink(filepath.Join(shared, "c"), filepath.Join(dir, "c")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, ".hidden", ".env.mcp"), "H=1\n")
+	if err := os.MkdirAll(filepath.Join(dir, "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := New("ccp")
+	task := tmt.Task{Dir: dir, Topic: "foo"}
+	if err := a.WriteContext(context.Background(), task, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, ".env.mcp")
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "A=1\nexport C=3\n"; string(data) != want {
+		t.Fatalf(".env.mcp = %q; want %q", data, want)
+	}
+	info, err := os.Stat(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf(".env.mcp mode = %o; want 600", perm)
+	}
+	for _, r := range []string{"a", "c"} {
+		if err := os.RemoveAll(filepath.Join(dir, r)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.WriteContext(context.Background(), task, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat .env.mcp: %v; want not exist", err)
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 const (
 	contextFile = "CLAUDE.md"
 	mcpFile     = ".mcp.json"
+	envFile     = ".env.mcp"
 	configFile  = ".claude.json"
 )
 
@@ -33,8 +34,11 @@ func New(command string) *Agent {
 	return &Agent{Cmd: command, Getenv: os.Getenv, HomeDir: os.UserHomeDir}
 }
 
-func (a *Agent) Command() string {
-	return a.Cmd
+func (a *Agent) Command(dir string) string {
+	if info, err := os.Stat(filepath.Join(dir, envFile)); err != nil || !info.Mode().IsRegular() {
+		return a.Cmd
+	}
+	return "(set -a && . ./" + envFile + " && set +a && exec " + a.Cmd + ")"
 }
 
 func (a *Agent) configPath() (string, error) {
@@ -162,7 +166,10 @@ func (a *Agent) WriteContext(ctx context.Context, t tmt.Task, worktrees []string
 	if err := os.WriteFile(filepath.Join(t.Dir, contextFile), []byte(renderContext(t, worktrees)), 0o644); err != nil {
 		return err
 	}
-	return writeMCP(t.Dir)
+	if err := writeMCP(t.Dir); err != nil {
+		return err
+	}
+	return writeEnv(t.Dir)
 }
 
 func renderContext(t tmt.Task, worktrees []string) string {
@@ -178,7 +185,7 @@ func renderContext(t tmt.Task, worktrees []string) string {
 	return b.String()
 }
 
-func mcpConfigs(dir string) ([]string, error) {
+func repoFiles(dir, name string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -188,7 +195,7 @@ func mcpConfigs(dir string) ([]string, error) {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		path := filepath.Join(dir, e.Name(), mcpFile)
+		path := filepath.Join(dir, e.Name(), name)
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
@@ -199,7 +206,7 @@ func mcpConfigs(dir string) ([]string, error) {
 }
 
 func writeMCP(dir string) error {
-	configs, err := mcpConfigs(dir)
+	configs, err := repoFiles(dir, mcpFile)
 	if err != nil {
 		return err
 	}
@@ -233,6 +240,32 @@ func writeMCP(dir string) error {
 		return err
 	}
 	return os.WriteFile(out, data, 0o644)
+}
+
+func writeEnv(dir string) error {
+	files, err := repoFiles(dir, envFile)
+	if err != nil {
+		return err
+	}
+	out := filepath.Join(dir, envFile)
+	if len(files) == 0 {
+		if err := os.Remove(out); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	var buf bytes.Buffer
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		buf.Write(data)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			buf.WriteByte('\n')
+		}
+	}
+	return writeAtomic(out, buf.Bytes(), 0o600)
 }
 
 func (a *Agent) ReadContext(ctx context.Context, t tmt.Task) (string, error) {
