@@ -29,12 +29,22 @@ func (a *App) addRepo(ctx context.Context, t Task, name string, created *[]creat
 		if e.Name != name {
 			continue
 		}
-		if e.Kind == EntryWorktree {
+		switch {
+		case e.Kind == EntryLink:
+			if err := a.Tasks.Unlink(ctx, t, name); err != nil {
+				return err
+			}
+		case a.Git.IsRepo(target):
 			a.logf("%s is already a worktree", name)
 			return nil
-		}
-		if err := a.Tasks.Unlink(ctx, t, name); err != nil {
-			return err
+		default:
+			empty, err := isEmptyDir(target)
+			if err != nil {
+				return err
+			}
+			if !empty {
+				return fmt.Errorf("%s exists and is not a worktree", target)
+			}
 		}
 	}
 
@@ -159,4 +169,12 @@ func (a *App) discardWorktree(ctx context.Context, src Repo, path string, force 
 		return err
 	}
 	return src.PruneWorktrees(ctx)
+}
+
+func isEmptyDir(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
 }

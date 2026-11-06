@@ -201,6 +201,10 @@ func (t *Tmux) NewWindow(ctx context.Context, session string, w tmt.Window) (tmt
 	return tmt.WindowID(id), nil
 }
 
+func (t *Tmux) SetStatus(context.Context, tmt.MuxStatus, string) error {
+	return nil
+}
+
 func (t *Tmux) SelectWindow(ctx context.Context, id tmt.WindowID) error {
 	_, err := t.run(ctx, "select-window", "-t", string(id))
 	return err

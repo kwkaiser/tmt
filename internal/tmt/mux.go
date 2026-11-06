@@ -14,6 +14,14 @@ type Window struct {
 	Dir  string
 }
 
+type MuxStatus int
+
+const (
+	MuxReady MuxStatus = iota
+	MuxWorking
+	MuxBlocked
+)
+
 type Session struct {
 	Name     string
 	Dir      string
@@ -30,6 +38,7 @@ type Mux interface {
 	EnsureSession(ctx context.Context, s Session) error
 	Attach(ctx context.Context, name string) error
 	KillSession(ctx context.Context, name string) error
+	SetStatus(ctx context.Context, s MuxStatus, msg string) error
 
 	FindWindow(ctx context.Context, session, name string) (WindowID, bool, error)
 	NewWindow(ctx context.Context, session string, w Window) (WindowID, error)

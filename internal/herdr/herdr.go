@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -17,17 +16,19 @@ import (
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
 
-const defaultSortBin = "herdr-sort-tabs"
+const (
+	statusSource = "tmt"
+	statusAgent  = "tmt"
+)
 
 type Herdr struct {
-	SortBin string
-	Getenv  func(string) string
+	Getenv func(string) string
 }
 
 var _ tmt.Mux = (*Herdr)(nil)
 
 func New() *Herdr {
-	return &Herdr{SortBin: defaultSortBin, Getenv: os.Getenv}
+	return &Herdr{Getenv: os.Getenv}
 }
 
 type workspace struct {
@@ -265,8 +266,12 @@ func (h *Herdr) EnsureSession(ctx context.Context, s tmt.Session) error {
 	}); err != nil {
 		return err
 	}
-	for _, w := range s.Windows {
-		if _, err := h.NewWindow(ctx, s.Name, w); err != nil {
+	ws, err := h.workspaceID(ctx, s.Name)
+	if err != nil {
+		return err
+	}
+	for i, w := range s.Windows {
+		if _, err := h.createTab(ctx, ws, w.Dir, tabLabel(i+2, w.Name)); err != nil {
 			return err
 		}
 	}
@@ -316,11 +321,15 @@ func (h *Herdr) NewWindow(ctx context.Context, session string, w tmt.Window) (tm
 	if err != nil {
 		return "", err
 	}
+	return h.createTab(ctx, ws, w.Dir, tabLabel(nextIndex(tabs), w.Name))
+}
+
+func (h *Herdr) createTab(ctx context.Context, ws, dir, label string) (tmt.WindowID, error) {
 	var c tabCreated
 	if err := h.call(ctx, &c, "tab.create", map[string]any{
 		"workspace_id": ws,
-		"cwd":          w.Dir,
-		"label":        tabLabel(nextIndex(tabs), w.Name),
+		"cwd":          dir,
+		"label":        label,
 		"focus":        false,
 	}); err != nil {
 		return "", err
@@ -328,20 +337,32 @@ func (h *Herdr) NewWindow(ctx context.Context, session string, w tmt.Window) (tm
 	if c.Result.Tab.ID == "" {
 		return "", errors.New("herdr tab create: no tab id")
 	}
-	h.sortTabs(ctx, ws)
 	return tmt.WindowID(c.Result.Tab.ID), nil
 }
 
-func (h *Herdr) sortTabs(ctx context.Context, ws string) {
-	bin := h.SortBin
-	if bin == "" {
-		bin = defaultSortBin
+func (h *Herdr) SetStatus(ctx context.Context, s tmt.MuxStatus, msg string) error {
+	pane := h.getenv("HERDR_PANE_ID")
+	if pane == "" {
+		return nil
 	}
-	path, err := exec.LookPath(bin)
-	if err != nil {
-		return
+	if s == tmt.MuxReady {
+		return h.call(ctx, nil, "pane.release_agent", map[string]string{
+			"pane_id": pane,
+			"source":  statusSource,
+			"agent":   statusAgent,
+		})
 	}
-	_ = exec.CommandContext(ctx, path, ws).Run()
+	state := "working"
+	if s == tmt.MuxBlocked {
+		state = "blocked"
+	}
+	return h.call(ctx, nil, "pane.report_agent", map[string]any{
+		"pane_id": pane,
+		"source":  statusSource,
+		"agent":   statusAgent,
+		"state":   state,
+		"message": msg,
+	})
 }
 
 func (h *Herdr) SelectWindow(ctx context.Context, id tmt.WindowID) error {

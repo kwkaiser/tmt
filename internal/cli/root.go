@@ -46,8 +46,13 @@ type app interface {
 	Pick(ctx context.Context) error
 	Switch(ctx context.Context) error
 	Create(ctx context.Context) error
+	Fill(ctx context.Context, topic string, repos []string) (string, error)
 	Preview(ctx context.Context, kind, dir, name string) error
 	Complete(ctx context.Context, kind, arg string) error
+}
+
+var execShell = func(command string) error {
+	return syscall.Exec("/bin/sh", []string{"sh", "-c", "clear && " + command}, os.Environ())
 }
 
 type factory func() (app, func() error, error)
@@ -162,6 +167,18 @@ func newRootCmd(build factory) *cobra.Command {
 		func(ctx context.Context, a app, _ []string) error { return a.Pick(ctx) }))
 	root.AddCommand(sub("switch", "pick any task and open its session", 0, 0,
 		func(ctx context.Context, a app, _ []string) error { return a.Switch(ctx) }))
+
+	fillCmd := sub("_fill <topic> [repo...]", "", 1, -1,
+		func(ctx context.Context, a app, args []string) error {
+			command, err := a.Fill(ctx, args[0], args[1:])
+			if err != nil {
+				return err
+			}
+			return execShell(command)
+		})
+	fillCmd.Hidden = true
+	fillCmd.DisableFlagParsing = true
+	root.AddCommand(fillCmd)
 
 	previewCmd := sub("_preview <kind> <dir> [name]", "", 2, 3,
 		func(ctx context.Context, a app, args []string) error {

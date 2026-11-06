@@ -315,3 +315,46 @@ func TestReadContext(t *testing.T) {
 		t.Fatalf("ReadContext = %q", got)
 	}
 }
+
+func TestTrustAlternateConfigDirs(t *testing.T) {
+	home := t.TempDir()
+	personal := filepath.Join(home, ".claude-personal")
+	if err := os.MkdirAll(personal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(personal, ".claude.json"), `{"projects":{}}`)
+	writeFile(t, filepath.Join(home, ".claude.json"), `{}`)
+	if err := os.MkdirAll(filepath.Join(home, ".claude-empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestAgent("", home)
+	if err := a.Trust(context.Background(), "/tasks/foo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(home, ".claude.json"), filepath.Join(personal, ".claude.json")} {
+		if !trusted(readJSON(t, p), "/tasks/foo") {
+			t.Fatalf("%s not trusted", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude-empty", ".claude.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("created config in empty dir: %v", err)
+	}
+}
+
+func TestTrustFromConfigDirAlsoTrustsHome(t *testing.T) {
+	home := t.TempDir()
+	cfgDir := filepath.Join(home, ".claude-personal")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, ".claude.json"), `{}`)
+	a := newTestAgent(cfgDir, home)
+	if err := a.Trust(context.Background(), "/tasks/foo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(home, ".claude.json"), filepath.Join(cfgDir, ".claude.json")} {
+		if !trusted(readJSON(t, p), "/tasks/foo") {
+			t.Fatalf("%s not trusted", p)
+		}
+	}
+}

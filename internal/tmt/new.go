@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 var topicPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -36,6 +38,7 @@ func (a *App) create(ctx context.Context, o NewOptions) (t Task, err error) {
 	if err := a.checkRepos(base, o.Repos); err != nil {
 		return Task{}, err
 	}
+	repos := slices.Compact(slices.Sorted(slices.Values(o.Repos)))
 
 	baseName := filepath.Base(base)
 	name := baseName + "-" + o.Topic
@@ -54,35 +57,72 @@ func (a *App) create(ctx context.Context, o NewOptions) (t Task, err error) {
 		return Task{}, fmt.Errorf("%s already exists", t.Dir)
 	}
 
-	if err := a.Fresh(ctx, base); err != nil {
-		a.warnf("fresh failed for %s, continuing", base)
-	}
 	if err := a.Tasks.Create(ctx, t); err != nil {
 		return Task{}, err
 	}
+	defer func() {
+		if err != nil {
+			a.rollback(context.WithoutCancel(ctx), t, nil)
+		}
+	}()
 
+	for _, r := range repos {
+		if err := os.Mkdir(filepath.Join(t.Dir, r), 0o755); err != nil {
+			return Task{}, err
+		}
+	}
+	if _, err := a.Tasks.LinkMissing(ctx, t); err != nil {
+		return Task{}, err
+	}
+	if err := a.ensureSession(ctx, t, a.fillCommand(t, repos)); err != nil {
+		return Task{}, err
+	}
+	return t, nil
+}
+
+func (a *App) fillCommand(t Task, repos []string) string {
+	args := append([]string{a.Config.Self, "_fill", t.Topic}, repos...)
+	for i, s := range args {
+		args[i] = shellQuote(s)
+	}
+	return strings.Join(args, " ")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func (a *App) Fill(ctx context.Context, topic string, repos []string) (string, error) {
+	t, err := a.Tasks.ByTopic(ctx, topic)
+	if err != nil {
+		return "", err
+	}
+	a.setStatus(ctx, MuxWorking, "creating worktrees")
+	if err := a.fill(ctx, t, repos); err != nil {
+		a.setStatus(context.WithoutCancel(ctx), MuxBlocked, err.Error())
+		return "", err
+	}
+	a.setStatus(ctx, MuxReady, "")
+	return a.Agent.Command(t.Dir), nil
+}
+
+func (a *App) fill(ctx context.Context, t Task, repos []string) (err error) {
 	var created []createdBranch
 	defer func() {
 		if err != nil {
 			a.rollback(context.WithoutCancel(ctx), t, created)
 		}
 	}()
-
-	if _, err := a.Tasks.LinkMissing(ctx, t); err != nil {
-		return Task{}, err
+	if err := a.Fresh(ctx, t.Base); err != nil {
+		a.warnf("fresh failed for %s, continuing", t.Base)
 	}
-	for _, r := range o.Repos {
+	for _, r := range repos {
+		a.setStatus(ctx, MuxWorking, "creating worktree "+r)
 		if err := a.addRepo(ctx, t, r, &created); err != nil {
-			return Task{}, err
+			return err
 		}
 	}
-	if err := a.writeContext(ctx, t); err != nil {
-		return Task{}, err
-	}
-	if err := a.ensureSession(ctx, t); err != nil {
-		return Task{}, err
-	}
-	return t, nil
+	return a.writeContext(ctx, t)
 }
 
 func (a *App) rollback(ctx context.Context, t Task, created []createdBranch) {

@@ -54,17 +54,59 @@ func (a *Agent) configPath() (string, error) {
 }
 
 func (a *Agent) Trust(ctx context.Context, dir string) error {
-	path, err := a.configPath()
+	primary, err := a.configPath()
 	if err != nil {
 		return err
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
+	if err := trustFile(primary, dir, true); err != nil {
+		return err
 	}
+	others, err := a.otherConfigPaths()
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{resolve(primary): true}
+	for _, p := range others {
+		r := resolve(p)
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		if err := trustFile(p, dir, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Agent) otherConfigPaths() ([]string, error) {
+	home, err := a.HomeDir()
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := filepath.Glob(filepath.Join(home, ".claude*", configFile))
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{filepath.Join(home, configFile)}, dirs...), nil
+}
+
+func resolve(path string) string {
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	return path
+}
+
+func trustFile(path, dir string, create bool) error {
+	path = resolve(path)
 	mode := fs.FileMode(0o600)
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
+		if !create {
+			return nil
+		}
 		data = []byte("{}")
 	case err != nil:
 		return err

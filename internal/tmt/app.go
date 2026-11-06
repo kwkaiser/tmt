@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 )
@@ -192,7 +193,13 @@ func (a *App) liveSessions(ctx context.Context) (map[string]bool, error) {
 	return live, nil
 }
 
-func (a *App) ensureSession(ctx context.Context, t Task) error {
+func (a *App) setStatus(ctx context.Context, s MuxStatus, msg string) {
+	if err := a.Mux.SetStatus(ctx, s, msg); err != nil {
+		a.warnf("%v", err)
+	}
+}
+
+func (a *App) ensureSession(ctx context.Context, t Task, command string) error {
 	has, err := a.Mux.HasSession(ctx, t.Session)
 	if err != nil {
 		return err
@@ -206,6 +213,9 @@ func (a *App) ensureSession(ctx context.Context, t Task) error {
 	if err != nil {
 		return err
 	}
+	slices.SortStableFunc(wts, func(x, y string) int {
+		return strings.Compare(strings.ToLower(x), strings.ToLower(y))
+	})
 	windows := make([]Window, len(wts))
 	for i, r := range wts {
 		windows[i] = Window{Name: r, Dir: filepath.Join(t.Dir, r)}
@@ -215,13 +225,13 @@ func (a *App) ensureSession(ctx context.Context, t Task) error {
 		Dir:      t.Dir,
 		Owner:    t.Dir,
 		RootName: rootWindow,
-		Command:  a.Agent.Command(t.Dir),
+		Command:  command,
 		Windows:  windows,
 	})
 }
 
 func (a *App) open(ctx context.Context, t Task) error {
-	if err := a.ensureSession(ctx, t); err != nil {
+	if err := a.ensureSession(ctx, t, a.Agent.Command(t.Dir)); err != nil {
 		return err
 	}
 	return a.Mux.Attach(ctx, t.Session)

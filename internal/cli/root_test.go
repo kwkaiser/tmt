@@ -40,6 +40,9 @@ func (f *fakeApp) GC(context.Context) error                        { return f.re
 func (f *fakeApp) Pick(context.Context) error                      { return f.record("Pick") }
 func (f *fakeApp) Switch(context.Context) error                    { return f.record("Switch") }
 func (f *fakeApp) Create(context.Context) error                    { return f.record("Create") }
+func (f *fakeApp) Fill(_ context.Context, topic string, repos []string) (string, error) {
+	return "ccp", f.record("Fill", topic, repos)
+}
 func (f *fakeApp) Preview(_ context.Context, kind, dir, name string) error {
 	return f.record("Preview", kind, dir, name)
 }
@@ -253,5 +256,33 @@ func TestCleanupError(t *testing.T) {
 	}
 	if stderr.String() != "tmt: close tty\n" {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestFillExecsAgent(t *testing.T) {
+	var got string
+	orig := execShell
+	execShell = func(command string) error { got = command; return nil }
+	t.Cleanup(func() { execShell = orig })
+	h := execute(t, &fakeApp{}, "_fill", "web-login", "api", "ui")
+	if h.runCode != 0 {
+		t.Fatalf("code = %d; stderr %q", h.runCode, h.stderr.String())
+	}
+	if want := []call{{"Fill", []any{"web-login", []string{"api", "ui"}}}}; !reflect.DeepEqual(h.app.calls, want) {
+		t.Fatalf("calls = %#v; want %#v", h.app.calls, want)
+	}
+	if got != "ccp" {
+		t.Fatalf("exec = %q; want ccp", got)
+	}
+}
+
+func TestFillErrorSkipsExec(t *testing.T) {
+	called := false
+	orig := execShell
+	execShell = func(string) error { called = true; return nil }
+	t.Cleanup(func() { execShell = orig })
+	h := execute(t, &fakeApp{err: errors.New("boom")}, "_fill", "web-login", "api")
+	if h.runCode != 1 || called {
+		t.Fatalf("code = %d, exec called = %v", h.runCode, called)
 	}
 }
