@@ -260,14 +260,22 @@ func TestWriteContextInvalidMCP(t *testing.T) {
 }
 
 func TestWriteContextMergesEnv(t *testing.T) {
+	for _, name := range []string{".env.mcp", ".env"} {
+		t.Run(name, func(t *testing.T) {
+			testWriteContextMergesEnv(t, name)
+		})
+	}
+}
+
+func testWriteContextMergesEnv(t *testing.T, name string) {
 	dir := t.TempDir()
 	shared := t.TempDir()
-	writeFile(t, filepath.Join(dir, "a", ".env.mcp"), "A=1")
-	writeFile(t, filepath.Join(shared, "c", ".env.mcp"), "export C=3\n")
+	writeFile(t, filepath.Join(dir, "a", name), "A=1")
+	writeFile(t, filepath.Join(shared, "c", name), "export C=3\n")
 	if err := os.Symlink(filepath.Join(shared, "c"), filepath.Join(dir, "c")); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, ".hidden", ".env.mcp"), "H=1\n")
+	writeFile(t, filepath.Join(dir, ".hidden", name), "H=1\n")
 	if err := os.MkdirAll(filepath.Join(dir, "b"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -276,20 +284,20 @@ func TestWriteContextMergesEnv(t *testing.T) {
 	if err := a.WriteContext(context.Background(), task, nil); err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(dir, ".env.mcp")
+	out := filepath.Join(dir, name)
 	data, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := "A=1\nexport C=3\n"; string(data) != want {
-		t.Fatalf(".env.mcp = %q; want %q", data, want)
+		t.Fatalf("%s = %q; want %q", name, data, want)
 	}
 	info, err := os.Stat(out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf(".env.mcp mode = %o; want 600", perm)
+		t.Fatalf("%s mode = %o; want 600", name, perm)
 	}
 	for _, r := range []string{"a", "c"} {
 		if err := os.RemoveAll(filepath.Join(dir, r)); err != nil {
@@ -300,7 +308,7 @@ func TestWriteContextMergesEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("stat .env.mcp: %v; want not exist", err)
+		t.Fatalf("stat %s: %v; want not exist", name, err)
 	}
 }
 

@@ -19,6 +19,7 @@ const (
 	contextFile = "CLAUDE.md"
 	mcpFile     = ".mcp.json"
 	envFile     = ".env.mcp"
+	dotenvFile  = ".env"
 	configFile  = ".claude.json"
 )
 
@@ -211,7 +212,12 @@ func (a *Agent) WriteContext(ctx context.Context, t tmt.Task, worktrees []string
 	if err := writeMCP(t.Dir); err != nil {
 		return err
 	}
-	return writeEnv(t.Dir)
+	for _, name := range []string{envFile, dotenvFile} {
+		if err := writeEnv(t.Dir, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func renderContext(t tmt.Task, worktrees []string) string {
@@ -284,12 +290,12 @@ func writeMCP(dir string) error {
 	return os.WriteFile(out, data, 0o644)
 }
 
-func writeEnv(dir string) error {
-	files, err := repoFiles(dir, envFile)
+func writeEnv(dir, name string) error {
+	files, err := repoFiles(dir, name)
 	if err != nil {
 		return err
 	}
-	out := filepath.Join(dir, envFile)
+	out := filepath.Join(dir, name)
 	if len(files) == 0 {
 		if err := os.Remove(out); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
