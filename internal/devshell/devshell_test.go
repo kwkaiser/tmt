@@ -67,22 +67,17 @@ func TestWriteMergesFlakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	realWeb, err := filepath.EvalSymlinks(filepath.Join(shared, "web"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	flake := read(t, filepath.Join(task, FlakeDir, "flake.nix"))
 	for _, want := range []string{
-		`"api" = {` + "\n      url = \"git+file://" + realTask + "/api\";\n      inputs.nixpkgs.follows = \"web/nixpkgs\";",
+		`"api" = {` + "\n      url = \"git+file://" + realTask + "/api\";\n    };",
 		`"nolock" = {` + "\n      url = \"git+file://" + realTask + "/nolock\";\n    };",
-		`"web" = {` + "\n      url = \"git+file://" + realWeb + "\";\n    };",
-		`nixpkgs = inputs."web".inputs.nixpkgs;`,
+		`nixpkgs = inputs."api".inputs.nixpkgs;`,
 	} {
 		if !strings.Contains(flake, want) {
 			t.Errorf("flake.nix missing %q:\n%s", want, flake)
 		}
 	}
-	for _, unwanted := range []string{`"cfg"`, `"plain"`, `".hidden"`} {
+	for _, unwanted := range []string{`"web"`, `"cfg"`, `"plain"`, `".hidden"`} {
 		if strings.Contains(flake, unwanted) {
 			t.Errorf("flake.nix contains %s:\n%s", unwanted, flake)
 		}
@@ -91,7 +86,6 @@ func TestWriteMergesFlakes(t *testing.T) {
 	want := strings.Join([]string{
 		"watch_file api/flake.nix api/flake.lock",
 		"watch_file nolock/flake.nix nolock/flake.lock",
-		"watch_file web/flake.nix web/flake.lock",
 		"use flake ./" + FlakeDir + " --recreate-lock-file",
 		"dotenv_if_exists cfg/.env",
 		"dotenv_if_exists plain/.env",

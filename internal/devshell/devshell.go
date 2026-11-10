@@ -99,7 +99,7 @@ func scan(dir string) ([]repo, []string, error) {
 		}
 		path := filepath.Join(dir, e.Name())
 		envs = append(envs, dotenvs(e.Name(), filepath.Join(path, envrcFile))...)
-		if !definesShell(filepath.Join(path, flakeFile)) {
+		if e.Type()&fs.ModeSymlink != 0 || !definesShell(filepath.Join(path, flakeFile)) {
 			continue
 		}
 		real, err := filepath.EvalSymlinks(path)
