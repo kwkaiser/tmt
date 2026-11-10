@@ -27,6 +27,10 @@ tmt done work-auth                    # remove task (asks to force if work is un
 tmt gc                                # remove tasks whose PRs are merged/closed
 ```
 
+## Task dev shell
+
+Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flake`, with every repo following the newest locked `nixpkgs`. The task `.envrc` loads it via `use flake`, repeats each repo's `dotenv`/`dotenv_if_exists` lines, and is `direnv allow`ed; the root agent window runs under `direnv exec`. Conflicting tools resolve to a single version; open a repo's own window for its exact toolchain.
+
 ## Configuration
 
 | Variable            | Default                               |

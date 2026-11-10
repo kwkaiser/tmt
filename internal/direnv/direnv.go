@@ -49,6 +49,21 @@ func (d *Direnv) Allow(ctx context.Context, dir string) error {
 	return nil
 }
 
+func (d *Direnv) Wrap(dir, command string) string {
+	if !isRegular(filepath.Join(dir, ".envrc")) {
+		return command
+	}
+	bin, ok := lookPath(d.bin())
+	if !ok {
+		return command
+	}
+	return shellQuote(bin) + " exec " + shellQuote(dir) + " sh -c " + shellQuote(command)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func isRegular(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()

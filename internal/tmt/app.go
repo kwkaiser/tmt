@@ -53,6 +53,7 @@ type App struct {
 	Dirs   DirIndex
 	Agent  Agent
 	Env    EnvTrust
+	Shell  DevShell
 	Out    io.Writer
 	Err    io.Writer
 }
@@ -178,7 +179,17 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 	if err != nil {
 		return err
 	}
-	return a.Agent.WriteContext(ctx, t, wts)
+	if err := a.Agent.WriteContext(ctx, t, wts); err != nil {
+		return err
+	}
+	if err := a.Shell.Write(ctx, t); err != nil {
+		return err
+	}
+	return a.Env.Allow(ctx, t.Dir)
+}
+
+func (a *App) agentCommand(t Task) string {
+	return a.Env.Wrap(t.Dir, a.Agent.Command(t.Dir))
 }
 
 func (a *App) liveSessions(ctx context.Context) (map[string]bool, error) {
@@ -231,7 +242,7 @@ func (a *App) ensureSession(ctx context.Context, t Task, command string) error {
 }
 
 func (a *App) open(ctx context.Context, t Task) error {
-	if err := a.ensureSession(ctx, t, a.Agent.Command(t.Dir)); err != nil {
+	if err := a.ensureSession(ctx, t, a.agentCommand(t)); err != nil {
 		return err
 	}
 	return a.Mux.Attach(ctx, t.Session)

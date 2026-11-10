@@ -11,4 +11,9 @@ type Agent interface {
 
 type EnvTrust interface {
 	Allow(ctx context.Context, dir string) error
+	Wrap(dir, command string) string
+}
+
+type DevShell interface {
+	Write(ctx context.Context, t Task) error
 }

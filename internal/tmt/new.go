@@ -103,7 +103,7 @@ func (a *App) Fill(ctx context.Context, topic string, repos []string) (string, e
 		return "", err
 	}
 	a.setStatus(ctx, MuxReady, "")
-	return a.Agent.Command(t.Dir), nil
+	return a.agentCommand(t), nil
 }
 
 func (a *App) fill(ctx context.Context, t Task, repos []string) (err error) {

@@ -6,6 +6,7 @@ import (
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/claude"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/clone"
+	"git.kwkaiser.io/kwkaiser/tmt/internal/devshell"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/direnv"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/forge"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/fzf"
@@ -41,6 +42,7 @@ func newApp() (app, func() error, error) {
 		Dirs:   zoxide.New(),
 		Agent:  claude.New(bc.ClaudeCommand),
 		Env:    direnv.New(),
+		Shell:  devshell.New(),
 		Out:    os.Stdout,
 		Err:    os.Stderr,
 	}, p.Close, nil

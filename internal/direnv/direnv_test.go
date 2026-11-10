@@ -90,3 +90,27 @@ func TestNewDefaultBin(t *testing.T) {
 		t.Fatalf("empty bin = %q; want direnv", b)
 	}
 }
+
+func TestWrap(t *testing.T) {
+	bin, _ := fake(t, "")
+	dir := envrc(t)
+	got := (&Direnv{Bin: bin}).Wrap(dir, "echo 'hi'")
+	want := "'" + bin + "' exec '" + dir + "' sh -c 'echo '\\''hi'\\'''"
+	if got != want {
+		t.Fatalf("Wrap = %q; want %q", got, want)
+	}
+}
+
+func TestWrapNoEnvrc(t *testing.T) {
+	bin, _ := fake(t, "")
+	if got := (&Direnv{Bin: bin}).Wrap(t.TempDir(), "claude"); got != "claude" {
+		t.Fatalf("Wrap = %q; want claude", got)
+	}
+}
+
+func TestWrapMissingBinary(t *testing.T) {
+	d := &Direnv{Bin: filepath.Join(t.TempDir(), "missing")}
+	if got := d.Wrap(envrc(t), "claude"); got != "claude" {
+		t.Fatalf("Wrap = %q; want claude", got)
+	}
+}
