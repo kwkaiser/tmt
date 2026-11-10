@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"code.gitea.io/sdk/gitea"
@@ -34,8 +35,18 @@ type Forge struct {
 	ConfigPaths []string
 	HTTPClient  *http.Client
 
-	mu    sync.Mutex
-	cache map[string]*listing
+	loadToken func(configDir string) tokenLoader
+	refresh   tokenRefresher
+
+	mu     sync.Mutex
+	cache  map[string]*listing
+	tokens map[string]*tokenResult
+}
+
+type tokenResult struct {
+	once  sync.Once
+	token string
+	err   error
 }
 
 func New() *Forge {
@@ -115,6 +126,11 @@ func (f *Forge) client(ctx context.Context, host string) (*gitea.Client, error) 
 	if err != nil {
 		return nil, err
 	}
+	if l.Token == "" && l.AuthMethod == authMethodOAuth {
+		if l.Token, err = f.oauthToken(ctx, l); err != nil {
+			return nil, err
+		}
+	}
 	opts := []gitea.ClientOption{
 		gitea.SetContext(ctx),
 		gitea.SetGiteaVersion(""),
@@ -147,7 +163,33 @@ func (f *Forge) login(host string) (login, error) {
 	if !ok {
 		return login{}, fmt.Errorf("no tea login for %s in %s", host, path)
 	}
+	l.configDir = filepath.Dir(path)
 	return l, nil
+}
+
+func (f *Forge) oauthToken(ctx context.Context, l login) (string, error) {
+	f.mu.Lock()
+	if f.tokens == nil {
+		f.tokens = map[string]*tokenResult{}
+	}
+	r, ok := f.tokens[l.Name]
+	if !ok {
+		r = &tokenResult{}
+		f.tokens[l.Name] = r
+	}
+	f.mu.Unlock()
+	r.once.Do(func() {
+		loadToken := f.loadToken
+		if loadToken == nil {
+			loadToken = teaTokenLoader
+		}
+		refresh := f.refresh
+		if refresh == nil {
+			refresh = teaRefresh
+		}
+		r.token, r.err = oauthToken(ctx, l.Name, loadToken(l.configDir), refresh)
+	})
+	return r.token, r.err
 }
 
 func (f *Forge) getenv() func(string) string {

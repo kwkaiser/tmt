@@ -18,11 +18,14 @@ const (
 )
 
 type login struct {
-	Name     string `yaml:"name"`
-	URL      string `yaml:"url"`
-	Token    string `yaml:"token"`
-	SSHHost  string `yaml:"ssh_host"`
-	Insecure bool   `yaml:"insecure"`
+	Name       string `yaml:"name"`
+	URL        string `yaml:"url"`
+	Token      string `yaml:"token"`
+	SSHHost    string `yaml:"ssh_host"`
+	Insecure   bool   `yaml:"insecure"`
+	AuthMethod string `yaml:"auth_method"`
+
+	configDir string
 }
 
 type teaConfig struct {
