@@ -5,11 +5,11 @@ go 1.26.10
 require (
 	code.gitea.io/sdk/gitea v0.25.1
 	github.com/cli/go-gh/v2 v2.17.0
-	github.com/go-signet/sdk-go v1.1.0
-	github.com/junegunn/fzf v0.74.5
+	github.com/go-signet/sdk-go v1.2.0
+	github.com/junegunn/fzf v0.75.0
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
