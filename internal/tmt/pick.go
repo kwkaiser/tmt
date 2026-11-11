@@ -285,7 +285,7 @@ func (a *App) Preview(ctx context.Context, kind, dir, name string) error {
 		if err != nil {
 			return err
 		}
-		text, err := a.Agent.ReadContext(ctx, t)
+		text, err := a.agent(t).ReadContext(ctx, t)
 		if err != nil {
 			return err
 		}

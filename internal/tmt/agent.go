@@ -17,3 +17,7 @@ type EnvTrust interface {
 type DevShell interface {
 	Write(ctx context.Context, t Task) error
 }
+
+type AgentSelector interface {
+	For(base string) Agent
+}

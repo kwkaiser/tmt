@@ -38,3 +38,19 @@ Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flak
 | `TMT_ROOT`          | `~/tasks`                             |
 | `TMT_BRANCH_PREFIX` | `u/kwkaiser/`                         |
 | `TMT_CLONE`         | `node_modules .env .env.local .env.mcp` (copied into new worktrees) |
+| `TMT_AGENT`         | `claude` (overrides `agent` in the config file) |
+| `TMT_CLAUDE_COMMAND`| overrides `agents.claude` in the config file |
+| `TMT_CONFIG`        | `$XDG_CONFIG_HOME/tmt/config.yaml`    |
+
+### Agents
+
+The task root window runs a coding agent: `claude` (writes `CLAUDE.md` and `.mcp.json`) or `codex` (writes `AGENTS.md` and trusts the task in `$CODEX_HOME/config.toml`). Pick the default, override commands, and map bases to agents in `config.yaml`; the longest matching `dirs` prefix of a task's base wins.
+
+```yaml
+agent: claude
+agents:
+  claude: ccpm
+  codex: codex --dangerously-bypass-approvals-and-sandbox
+dirs:
+  ~/Documents/personal/website: codex
+```

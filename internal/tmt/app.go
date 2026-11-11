@@ -51,7 +51,7 @@ type App struct {
 	Cloner Cloner
 	Trash  Trash
 	Dirs   DirIndex
-	Agent  Agent
+	Agents AgentSelector
 	Env    EnvTrust
 	Shell  DevShell
 	Out    io.Writer
@@ -179,7 +179,7 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 	if err != nil {
 		return err
 	}
-	if err := a.Agent.WriteContext(ctx, t, wts); err != nil {
+	if err := a.agent(t).WriteContext(ctx, t, wts); err != nil {
 		return err
 	}
 	if err := a.Shell.Write(ctx, t); err != nil {
@@ -189,7 +189,7 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 }
 
 func (a *App) agentCommand(t Task) string {
-	return a.Env.Wrap(t.Dir, a.Agent.Command(t.Dir))
+	return a.Env.Wrap(t.Dir, a.agent(t).Command(t.Dir))
 }
 
 func (a *App) liveSessions(ctx context.Context) (map[string]bool, error) {
@@ -216,7 +216,7 @@ func (a *App) ensureSession(ctx context.Context, t Task, command string) error {
 		return err
 	}
 	if !has {
-		if err := a.Agent.Trust(ctx, t.Dir); err != nil {
+		if err := a.agent(t).Trust(ctx, t.Dir); err != nil {
 			return err
 		}
 	}
@@ -246,4 +246,8 @@ func (a *App) open(ctx context.Context, t Task) error {
 		return err
 	}
 	return a.Mux.Attach(ctx, t.Session)
+}
+
+func (a *App) agent(t Task) Agent {
+	return a.Agents.For(t.Base)
 }
