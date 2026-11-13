@@ -18,7 +18,7 @@ var (
 )
 
 const (
-	rootWindow   = "claude"
+	rootWindow   = "agent"
 	iconWorktree = "\ue725"
 	iconRoot     = "\uf120"
 	iconMain     = "\uf07b"
