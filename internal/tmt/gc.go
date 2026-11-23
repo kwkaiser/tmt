@@ -157,6 +157,13 @@ func (a *App) GC(ctx context.Context) error {
 	if err := a.Trash.Empty(); err != nil {
 		return err
 	}
+	current, err := a.Mux.CurrentSession(ctx)
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].Session != current && candidates[j].Session == current
+	})
 	for _, t := range candidates {
 		if err := a.removeTask(ctx, t, removeOptions{}); err != nil {
 			return err
