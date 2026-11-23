@@ -113,7 +113,7 @@ func (a *App) fill(ctx context.Context, t Task, repos []string) (err error) {
 			a.rollback(context.WithoutCancel(ctx), t, created)
 		}
 	}()
-	if err := a.Fresh(ctx, t.Base); err != nil {
+	if err := a.fresh(ctx, t.Base); err != nil {
 		a.warnf("fresh failed for %s, continuing", t.Base)
 	}
 	for _, r := range repos {

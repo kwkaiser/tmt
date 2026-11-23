@@ -6,30 +6,54 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-func (a *App) Fresh(ctx context.Context, query string) error {
-	var base string
-	if query != "" {
-		b, err := a.resolveBase(ctx, query)
-		if err != nil {
-			return err
-		}
-		base = b
-	} else {
-		t, err := a.currentTask(ctx)
-		if errors.Is(err, ErrTaskNotFound) {
-			return errors.New("usage: tmt fresh [base]")
-		}
-		if err != nil {
-			return err
-		}
-		base = t.Base
-	}
+const lastFreshFile = ".last-fresh"
 
+func (a *App) Fresh(ctx context.Context, query string) error {
+	base, err := a.freshBase(ctx, query)
+	if err != nil {
+		return err
+	}
+	return a.fresh(ctx, base)
+}
+
+func (a *App) freshBase(ctx context.Context, query string) (string, error) {
+	path := filepath.Join(a.Config.Root, lastFreshFile)
+	if query != "" {
+		base, err := a.resolveBase(ctx, query)
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(a.Config.Root, 0o755); err != nil {
+			return "", err
+		}
+		return base, os.WriteFile(path, []byte(base+"\n"), 0o644)
+	}
+	data, err := os.ReadFile(path)
+	if err == nil {
+		if base := strings.TrimSpace(string(data)); base != "" {
+			return base, nil
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	t, err := a.currentTask(ctx)
+	if errors.Is(err, ErrTaskNotFound) {
+		return "", errors.New("usage: tmt fresh [base]")
+	}
+	if err != nil {
+		return "", err
+	}
+	return t.Base, nil
+}
+
+func (a *App) fresh(ctx context.Context, base string) error {
 	repos, err := a.baseRepos(base, 0)
 	if err != nil {
 		return err
