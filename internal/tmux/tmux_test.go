@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"reflect"
 	"testing"
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
@@ -38,5 +39,13 @@ func TestCurrentSessionOutsideTmux(t *testing.T) {
 	s, err := m.CurrentSession(t.Context())
 	if err != nil || s != "" {
 		t.Fatalf("CurrentSession = %q, %v; want empty", s, err)
+	}
+}
+
+func TestParsePanes(t *testing.T) {
+	got := parsePanes("%1 nvim\n%2 -zsh\n%3 bash\n%4 claude\n")
+	want := []tmt.Pane{{ID: "%1"}, {ID: "%2", Idle: true}, {ID: "%3", Idle: true}, {ID: "%4"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parsePanes = %v; want %v", got, want)
 	}
 }

@@ -25,6 +25,11 @@ tmt open work-auth
 tmt fresh work                        # fetch + fast-forward default branches
 tmt done work-auth                    # remove task (asks to force if work is unpushed; -f to force, -y to refuse)
 tmt gc                                # remove tasks whose PRs are merged/closed
+
+# any session
+tmt window api                        # focus the window/tab named api, opening it in $PWD if missing
+tmt window -s w1 -C ~/src/api api -- nvim +12 main.go
+                                      # run in an idle shell pane of that window, else split it
 ```
 
 ### Driving tmt from another agent

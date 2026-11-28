@@ -46,11 +46,12 @@ func TestWorkspaceByLabel(t *testing.T) {
 		"tmt":       "wF",
 		"lila":      "wD",
 		"nixos-cfg": "w1",
+		"wG":        "wG",
 		"missing":   "",
 	}
 	for label, want := range cases {
-		if got := workspaceByLabel(ws, label); got != want {
-			t.Errorf("workspaceByLabel(%q) = %q; want %q", label, got, want)
+		if got := workspaceByName(ws, label); got != want {
+			t.Errorf("workspaceByName(%q) = %q; want %q", label, got, want)
 		}
 	}
 }
@@ -223,5 +224,29 @@ func TestCallError(t *testing.T) {
 	err := h.SelectWindow(t.Context(), "x")
 	if err == nil || !strings.Contains(err.Error(), "tab_not_found") {
 		t.Fatalf("err = %v; want tab_not_found", err)
+	}
+}
+
+func TestSelectPane(t *testing.T) {
+	h, reqs := serve(t, `{"id":"tmt","result":{"type":"ok"}}`)
+	if err := h.SelectPane(t.Context(), "wF:p3"); err != nil {
+		t.Fatal(err)
+	}
+	r := <-reqs
+	params, _ := json.Marshal(r.Params)
+	if r.Method != "pane.focus" || string(params) != `{"pane_id":"wF:p3"}` {
+		t.Fatalf("request = %s %s", r.Method, params)
+	}
+}
+
+func TestRunInPane(t *testing.T) {
+	h, reqs := serve(t, `{"id":"tmt","result":{"type":"ok"}}`)
+	if err := h.RunInPane(t.Context(), "wF:p3", "nvim x"); err != nil {
+		t.Fatal(err)
+	}
+	r := <-reqs
+	params, _ := json.Marshal(r.Params)
+	if r.Method != "pane.send_input" || string(params) != `{"keys":["Enter"],"pane_id":"wF:p3","text":"nvim x"}` {
+		t.Fatalf("request = %s %s", r.Method, params)
 	}
 }

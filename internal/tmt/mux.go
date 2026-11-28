@@ -9,6 +9,13 @@ var ErrForeignSession = errors.New("session exists but does not belong to this t
 
 type WindowID string
 
+type PaneID string
+
+type Pane struct {
+	ID   PaneID
+	Idle bool
+}
+
 type Window struct {
 	Name string
 	Dir  string
@@ -44,4 +51,9 @@ type Mux interface {
 	NewWindow(ctx context.Context, session string, w Window) (WindowID, error)
 	SelectWindow(ctx context.Context, id WindowID) error
 	KillWindow(ctx context.Context, id WindowID) error
+
+	Panes(ctx context.Context, id WindowID) ([]Pane, error)
+	SplitWindow(ctx context.Context, id WindowID, dir string) (PaneID, error)
+	RunInPane(ctx context.Context, id PaneID, command string) error
+	SelectPane(ctx context.Context, id PaneID) error
 }

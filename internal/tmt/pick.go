@@ -216,20 +216,11 @@ func (a *App) pickRepo(ctx context.Context, t Task) (bool, error) {
 		}
 	}
 
-	id, found, err := a.Mux.FindWindow(ctx, t.Session, name)
-	if err != nil {
-		return false, err
+	dir := t.Dir
+	if name != rootWindow {
+		dir = filepath.Join(t.Dir, name)
 	}
-	if !found {
-		dir := t.Dir
-		if name != rootWindow {
-			dir = filepath.Join(t.Dir, name)
-		}
-		if id, err = a.Mux.NewWindow(ctx, t.Session, Window{Name: name, Dir: dir}); err != nil {
-			return false, err
-		}
-	}
-	return false, a.Mux.SelectWindow(ctx, id)
+	return false, a.Window(ctx, WindowOptions{Session: t.Session, Name: name, Dir: dir})
 }
 
 func (a *App) Preview(ctx context.Context, kind, dir, name string) error {

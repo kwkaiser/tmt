@@ -44,7 +44,10 @@ func (f *fakeApp) Close(_ context.Context, yes bool) error         { return f.re
 func (f *fakeApp) GC(_ context.Context, yes bool) error            { return f.record("GC", yes) }
 func (f *fakeApp) Pick(context.Context) error                      { return f.record("Pick") }
 func (f *fakeApp) Switch(context.Context) error                    { return f.record("Switch") }
-func (f *fakeApp) Create(context.Context) error                    { return f.record("Create") }
+func (f *fakeApp) Window(_ context.Context, o tmt.WindowOptions) error {
+	return f.record("Window", o)
+}
+func (f *fakeApp) Create(context.Context) error { return f.record("Create") }
 func (f *fakeApp) Fill(_ context.Context, topic string, repos []string) (string, error) {
 	return "ccp", f.record("Fill", topic, repos)
 }
@@ -114,6 +117,8 @@ func TestDispatch(t *testing.T) {
 		{[]string{"gc", "--yes"}, call{"GC", []any{true}}},
 		{[]string{"pick"}, call{"Pick", nil}},
 		{[]string{"switch"}, call{"Switch", nil}},
+		{[]string{"window", "api"}, call{"Window", []any{tmt.WindowOptions{Name: "api", Command: []string{}}}}},
+		{[]string{"window", "-s", "w1", "-C", "/t/api", "api", "--", "nvim", "+3", "a b"}, call{"Window", []any{tmt.WindowOptions{Session: "w1", Name: "api", Dir: "/t/api", Command: []string{"nvim", "+3", "a b"}}}}},
 		{[]string{"_preview", "task", "/t/web/web-login"}, call{"Preview", []any{"task", "/t/web/web-login", ""}}},
 		{[]string{"_preview", "repo", "/t/web/web-login", "api"}, call{"Preview", []any{"repo", "/t/web/web-login", "api"}}},
 		{[]string{"_complete", "tasks"}, call{"Complete", []any{"tasks", ""}}},
@@ -250,7 +255,7 @@ func TestHelp(t *testing.T) {
 			t.Fatalf("%v: built app for help", args)
 		}
 	}
-	for _, sub := range []string{"create", "new", "add", "open", "ls", "status", "fresh", "done", "close", "gc", "pick", "switch"} {
+	for _, sub := range []string{"create", "new", "add", "open", "ls", "status", "fresh", "done", "close", "gc", "pick", "switch", "window"} {
 		if !strings.Contains(usage, "tmt "+sub) {
 			t.Errorf("usage missing %s", sub)
 		}

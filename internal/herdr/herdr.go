@@ -43,7 +43,31 @@ type tab struct {
 }
 
 type pane struct {
-	ID string `json:"pane_id"`
+	ID    string `json:"pane_id"`
+	TabID string `json:"tab_id"`
+}
+
+type paneList struct {
+	Result struct {
+		Panes []pane `json:"panes"`
+	} `json:"result"`
+}
+
+type paneSplit struct {
+	Result struct {
+		Pane pane `json:"pane"`
+	} `json:"result"`
+}
+
+type processInfo struct {
+	Result struct {
+		ProcessInfo struct {
+			ShellPID   int `json:"shell_pid"`
+			Foreground []struct {
+				PID int `json:"pid"`
+			} `json:"foreground_processes"`
+		} `json:"process_info"`
+	} `json:"result"`
 }
 
 type workspaceList struct {
@@ -156,12 +180,17 @@ func (h *Herdr) workspaceID(ctx context.Context, label string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return workspaceByLabel(ws, label), nil
+	return workspaceByName(ws, label), nil
 }
 
-func workspaceByLabel(ws []workspace, label string) string {
+func workspaceByName(ws []workspace, label string) string {
 	for _, w := range ws {
 		if w.Label == label {
+			return w.ID
+		}
+	}
+	for _, w := range ws {
+		if w.ID == label {
 			return w.ID
 		}
 	}
@@ -371,4 +400,67 @@ func (h *Herdr) SelectWindow(ctx context.Context, id tmt.WindowID) error {
 
 func (h *Herdr) KillWindow(ctx context.Context, id tmt.WindowID) error {
 	return h.call(ctx, nil, "tab.close", map[string]string{"tab_id": string(id)})
+}
+
+func (h *Herdr) Panes(ctx context.Context, id tmt.WindowID) ([]tmt.Pane, error) {
+	var l paneList
+	if err := h.call(ctx, &l, "pane.list", struct{}{}); err != nil {
+		return nil, err
+	}
+	var panes []tmt.Pane
+	for _, p := range l.Result.Panes {
+		if p.TabID != string(id) {
+			continue
+		}
+		idle, err := h.idle(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		panes = append(panes, tmt.Pane{ID: tmt.PaneID(p.ID), Idle: idle})
+	}
+	return panes, nil
+}
+
+func (h *Herdr) idle(ctx context.Context, id string) (bool, error) {
+	var info processInfo
+	if err := h.call(ctx, &info, "pane.process_info", map[string]string{"pane_id": id}); err != nil {
+		return false, err
+	}
+	p := info.Result.ProcessInfo
+	return len(p.Foreground) == 1 && p.Foreground[0].PID == p.ShellPID, nil
+}
+
+func (h *Herdr) SplitWindow(ctx context.Context, id tmt.WindowID, dir string) (tmt.PaneID, error) {
+	panes, err := h.Panes(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if len(panes) == 0 {
+		return "", fmt.Errorf("herdr tab %s has no panes", id)
+	}
+	var s paneSplit
+	if err := h.call(ctx, &s, "pane.split", map[string]any{
+		"target_pane_id": string(panes[0].ID),
+		"direction":      "right",
+		"cwd":            dir,
+		"focus":          false,
+	}); err != nil {
+		return "", err
+	}
+	if s.Result.Pane.ID == "" {
+		return "", errors.New("herdr pane split: no pane id")
+	}
+	return tmt.PaneID(s.Result.Pane.ID), nil
+}
+
+func (h *Herdr) RunInPane(ctx context.Context, id tmt.PaneID, command string) error {
+	return h.call(ctx, nil, "pane.send_input", map[string]any{
+		"pane_id": string(id),
+		"text":    command,
+		"keys":    []string{"Enter"},
+	})
+}
+
+func (h *Herdr) SelectPane(ctx context.Context, id tmt.PaneID) error {
+	return h.call(ctx, nil, "pane.focus", map[string]string{"pane_id": string(id)})
 }

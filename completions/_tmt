@@ -28,6 +28,7 @@ _tmt() {
     'gc:remove tasks whose PRs are merged or closed'
     'pick:pick a repo in the current task, or a task'
     'switch:pick any task and open its session'
+    'window:focus or open a named window, optionally running a command in it'
   )
 
   if (( CURRENT == 2 )); then
@@ -63,6 +64,13 @@ _tmt() {
       ;;
     ls)
       _arguments '-p[include GitHub PR state]'
+      ;;
+    window)
+      _arguments -s \
+        '-s[session name or herdr workspace id]:session: ' \
+        '-C[directory for a new window or pane]:directory:_directories' \
+        '1:window name: ' \
+        '*::command:_normal'
       ;;
     done)
       _arguments -s \

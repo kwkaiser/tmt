@@ -30,6 +30,7 @@ const usage = `usage:
   tmt gc [-y]
   tmt pick
   tmt switch
+  tmt window [-s session] [-C dir] <name> [-- command...]
 
 base is a directory or zoxide query; tasks live under $TMT_ROOT/<base name>/<base name>-<topic>
 `
@@ -48,6 +49,7 @@ type app interface {
 	GC(ctx context.Context, yes bool) error
 	Pick(ctx context.Context) error
 	Switch(ctx context.Context) error
+	Window(ctx context.Context, o tmt.WindowOptions) error
 	Create(ctx context.Context) error
 	Fill(ctx context.Context, topic string, repos []string) (string, error)
 	Preview(ctx context.Context, kind, dir, name string) error
@@ -235,6 +237,18 @@ func newRootCmd(build factory) *cobra.Command {
 		func(ctx context.Context, a app, _ []string) error { return a.Pick(ctx) }))
 	root.AddCommand(sub("switch", "pick any task and open its session", 0, 0,
 		func(ctx context.Context, a app, _ []string) error { return a.Switch(ctx) }))
+
+	var window tmt.WindowOptions
+	windowCmd := sub("window [-s session] [-C dir] <name> [-- command...]", "focus or open a named window, optionally running a command in it", 1, -1,
+		func(ctx context.Context, a app, args []string) error {
+			o := window
+			o.Name = args[0]
+			o.Command = args[1:]
+			return a.Window(ctx, o)
+		})
+	windowCmd.Flags().StringVarP(&window.Session, "session", "s", "", "session name or herdr workspace id (default: current)")
+	windowCmd.Flags().StringVarP(&window.Dir, "dir", "C", "", "directory for a new window or pane (default: working directory)")
+	root.AddCommand(windowCmd)
 
 	fillCmd := sub("_fill <topic> [repo...]", "", 1, -1,
 		func(ctx context.Context, a app, args []string) error {

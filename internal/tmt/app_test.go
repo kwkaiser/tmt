@@ -23,6 +23,12 @@ type fakeMux struct {
 	attached []string
 	killed   []string
 	statuses []tmt.MuxStatus
+	windows  map[string]tmt.WindowID
+	panes    map[tmt.WindowID][]tmt.Pane
+	created  []tmt.Window
+	splits   []string
+	ran      map[tmt.PaneID]string
+	focused  []string
 }
 
 func (m *fakeMux) CurrentSession(context.Context) (string, error) { return m.current, nil }
@@ -54,14 +60,42 @@ func (m *fakeMux) SetStatus(_ context.Context, s tmt.MuxStatus, _ string) error 
 	m.statuses = append(m.statuses, s)
 	return nil
 }
-func (m *fakeMux) FindWindow(context.Context, string, string) (tmt.WindowID, bool, error) {
-	return "", false, nil
+func (m *fakeMux) FindWindow(_ context.Context, session, name string) (tmt.WindowID, bool, error) {
+	id, ok := m.windows[session+"/"+name]
+	return id, ok, nil
 }
-func (m *fakeMux) NewWindow(context.Context, string, tmt.Window) (tmt.WindowID, error) {
-	return "", nil
+func (m *fakeMux) NewWindow(_ context.Context, session string, w tmt.Window) (tmt.WindowID, error) {
+	m.created = append(m.created, w)
+	id := tmt.WindowID("@new")
+	if m.panes == nil {
+		m.panes = map[tmt.WindowID][]tmt.Pane{}
+	}
+	m.panes[id] = []tmt.Pane{{ID: "%new"}}
+	return id, nil
 }
-func (m *fakeMux) SelectWindow(context.Context, tmt.WindowID) error { return nil }
-func (m *fakeMux) KillWindow(context.Context, tmt.WindowID) error   { return nil }
+func (m *fakeMux) SelectWindow(_ context.Context, id tmt.WindowID) error {
+	m.focused = append(m.focused, string(id))
+	return nil
+}
+func (m *fakeMux) KillWindow(context.Context, tmt.WindowID) error { return nil }
+func (m *fakeMux) Panes(_ context.Context, id tmt.WindowID) ([]tmt.Pane, error) {
+	return m.panes[id], nil
+}
+func (m *fakeMux) SplitWindow(_ context.Context, id tmt.WindowID, dir string) (tmt.PaneID, error) {
+	m.splits = append(m.splits, string(id)+" "+dir)
+	return "%split", nil
+}
+func (m *fakeMux) RunInPane(_ context.Context, id tmt.PaneID, command string) error {
+	if m.ran == nil {
+		m.ran = map[tmt.PaneID]string{}
+	}
+	m.ran[id] = command
+	return nil
+}
+func (m *fakeMux) SelectPane(_ context.Context, id tmt.PaneID) error {
+	m.focused = append(m.focused, string(id))
+	return nil
+}
 
 type fakeAgent struct {
 	written []tmt.Task

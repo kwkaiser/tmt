@@ -214,3 +214,54 @@ func (t *Tmux) KillWindow(ctx context.Context, id tmt.WindowID) error {
 	_, err := t.run(ctx, "kill-window", "-t", string(id))
 	return err
 }
+
+var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "nu": true}
+
+func (t *Tmux) Panes(ctx context.Context, id tmt.WindowID) ([]tmt.Pane, error) {
+	out, err := t.run(ctx, "list-panes", "-t", string(id), "-F", "#{pane_id} #{pane_current_command}")
+	if err != nil {
+		return nil, err
+	}
+	return parsePanes(out), nil
+}
+
+func parsePanes(out string) []tmt.Pane {
+	var panes []tmt.Pane
+	for line := range strings.SplitSeq(out, "\n") {
+		id, command, _ := strings.Cut(line, " ")
+		if id == "" {
+			continue
+		}
+		panes = append(panes, tmt.Pane{ID: tmt.PaneID(id), Idle: shells[strings.TrimPrefix(command, "-")]})
+	}
+	return panes
+}
+
+func (t *Tmux) SplitWindow(ctx context.Context, id tmt.WindowID, dir string) (tmt.PaneID, error) {
+	out, err := t.run(ctx, "split-window", "-d", "-h", "-P", "-F", "#{pane_id}", "-t", string(id), "-c", dir)
+	if err != nil {
+		return "", err
+	}
+	pane := strings.TrimSpace(out)
+	if pane == "" {
+		return "", errors.New("tmux split-window: no pane id")
+	}
+	return tmt.PaneID(pane), nil
+}
+
+func (t *Tmux) RunInPane(ctx context.Context, id tmt.PaneID, command string) error {
+	if _, err := t.run(ctx, "send-keys", "-t", string(id), "-l", command); err != nil {
+		return err
+	}
+	_, err := t.run(ctx, "send-keys", "-t", string(id), "Enter")
+	return err
+}
+
+func (t *Tmux) SelectPane(ctx context.Context, id tmt.PaneID) error {
+	_, _ = t.run(ctx, "switch-client", "-t", string(id))
+	if _, err := t.run(ctx, "select-window", "-t", string(id)); err != nil {
+		return err
+	}
+	_, err := t.run(ctx, "select-pane", "-t", string(id))
+	return err
+}
