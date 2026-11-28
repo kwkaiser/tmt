@@ -3,9 +3,12 @@ package tmt
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var ErrTaskNotFound = errors.New("task not found")
+
+const PromptFile = ".tmt-prompt"
 
 type Task struct {
 	Dir     string
@@ -13,6 +16,7 @@ type Task struct {
 	Base    string
 	Branch  string
 	Session string
+	Prompt  string
 }
 
 type EntryKind int
@@ -27,6 +31,21 @@ type Entry struct {
 	Kind EntryKind
 }
 
+type AgentState string
+
+const (
+	StateCreating AgentState = "creating"
+	StateRunning  AgentState = "running"
+	StateBlocked  AgentState = "blocked"
+	StateFinished AgentState = "finished"
+)
+
+type TaskStatus struct {
+	State   AgentState
+	Message string
+	Updated time.Time
+}
+
 type TaskStore interface {
 	List(ctx context.Context) ([]Task, error)
 	ByTopic(ctx context.Context, topic string) (Task, error)
@@ -39,4 +58,8 @@ type TaskStore interface {
 	Link(ctx context.Context, t Task, repo string) error
 	Unlink(ctx context.Context, t Task, repo string) error
 	LinkMissing(ctx context.Context, t Task) ([]string, error)
+
+	SetPrompt(ctx context.Context, t Task, prompt string) error
+	SetStatus(ctx context.Context, t Task, s TaskStatus) error
+	Status(ctx context.Context, t Task) (TaskStatus, bool, error)
 }

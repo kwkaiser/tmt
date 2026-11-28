@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,12 +50,32 @@ func trusted(m map[string]any, dir string) bool {
 
 func TestCommand(t *testing.T) {
 	dir := t.TempDir()
-	if got := New("ccp").Command(dir); got != "ccp" {
+	if got := New("ccp").Command(dir, ""); got != "ccp" {
 		t.Fatalf("Command = %q; want ccp", got)
 	}
-	writeFile(t, filepath.Join(dir, ".env.mcp"), "A=1\n")
-	if got, want := New("ccp").Command(dir), "(set -a && . ./.env.mcp && set +a && exec ccp)"; got != want {
+	if got, want := New("ccp").Command(dir, "/t/it's/.tmt-prompt"), `ccp "$(cat '/t/it'\''s/.tmt-prompt')"`; got != want {
 		t.Fatalf("Command = %q; want %q", got, want)
+	}
+	writeFile(t, filepath.Join(dir, ".env.mcp"), "A=1\n")
+	if got, want := New("ccp").Command(dir, ""), "(set -a && . ./.env.mcp && set +a && exec ccp)"; got != want {
+		t.Fatalf("Command = %q; want %q", got, want)
+	}
+	if got, want := New("ccp").Command(dir, "/t/p"), `(set -a && . ./.env.mcp && set +a && exec ccp "$(cat '/t/p')")`; got != want {
+		t.Fatalf("Command = %q; want %q", got, want)
+	}
+}
+
+func TestCommandPromptRunsInShell(t *testing.T) {
+	dir := t.TempDir()
+	prompt := "fix the \"login\" bug\nthen run $HOME `tests` 'now'"
+	path := filepath.Join(dir, ".tmt-prompt")
+	writeFile(t, path, prompt)
+	out, err := exec.Command("sh", "-c", New(`printf %s`).Command(dir, path)).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != prompt {
+		t.Fatalf("agent got %q; want %q", out, prompt)
 	}
 }
 
@@ -175,6 +196,21 @@ func TestWriteContextClaudeMD(t *testing.T) {
 	}
 	if string(data) != want {
 		t.Fatalf("CLAUDE.md =\n%s\nwant\n%s", data, want)
+	}
+}
+
+func TestWriteContextRecordsPrompt(t *testing.T) {
+	dir := t.TempDir()
+	task := tmt.Task{Dir: dir, Topic: "foo", Base: "/src", Branch: "b", Prompt: "  fix the login bug\nand add tests\n"}
+	if err := New("ccp").WriteContext(context.Background(), task, []string{"api"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "this task.\n\n## Initial prompt\n\nfix the login bug\nand add tests\n"; !strings.HasSuffix(string(data), want) {
+		t.Fatalf("CLAUDE.md =\n%s\nwant suffix\n%s", data, want)
 	}
 }
 

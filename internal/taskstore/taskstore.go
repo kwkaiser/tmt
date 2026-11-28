@@ -10,11 +10,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"git.kwkaiser.io/kwkaiser/tmt/internal/taskfiles"
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
 
-const metaFile = ".tmt"
+const (
+	metaFile   = ".tmt"
+	statusFile = ".tmt-status"
+)
 
 type Store struct {
 	Root string
@@ -130,7 +135,58 @@ func (s *Store) Create(ctx context.Context, t tmt.Task) error {
 		f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return s.SetPrompt(ctx, t, t.Prompt)
+}
+
+func (s *Store) SetPrompt(ctx context.Context, t tmt.Task, prompt string) error {
+	path := filepath.Join(t.Dir, tmt.PromptFile)
+	if prompt == "" {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return taskfiles.WriteAtomic(path, []byte(prompt), 0o644)
+}
+
+func (s *Store) SetStatus(ctx context.Context, t tmt.Task, st tmt.TaskStatus) error {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "state=%s\n", st.State)
+	fmt.Fprintf(&b, "updated=%s\n", st.Updated.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "message=%s\n", strings.Join(strings.Fields(st.Message), " "))
+	return taskfiles.WriteAtomic(filepath.Join(t.Dir, statusFile), b.Bytes(), 0o644)
+}
+
+func (s *Store) Status(ctx context.Context, t tmt.Task) (tmt.TaskStatus, bool, error) {
+	data, err := os.ReadFile(filepath.Join(t.Dir, statusFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return tmt.TaskStatus{}, false, nil
+	}
+	if err != nil {
+		return tmt.TaskStatus{}, false, err
+	}
+	var st tmt.TaskStatus
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	for sc.Scan() {
+		key, value, ok := strings.Cut(sc.Text(), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "state":
+			st.State = tmt.AgentState(value)
+		case "message":
+			st.Message = value
+		case "updated":
+			if ts, err := time.Parse(time.RFC3339, value); err == nil {
+				st.Updated = ts
+			}
+		}
+	}
+	return st, st.State != "", nil
 }
 
 func (s *Store) Remove(ctx context.Context, t tmt.Task) error {
@@ -237,6 +293,13 @@ func load(dir string) (tmt.Task, error) {
 	}
 	t := decode(data)
 	t.Dir = dir
+	prompt, err := os.ReadFile(filepath.Join(dir, tmt.PromptFile))
+	switch {
+	case err == nil:
+		t.Prompt = string(prompt)
+	case !errors.Is(err, fs.ErrNotExist):
+		return tmt.Task{}, err
+	}
 	if t.Topic == "" {
 		t.Topic = filepath.Base(dir)
 	}

@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,12 +33,15 @@ func (f *fakeApp) New(_ context.Context, o tmt.NewOptions) error { return f.reco
 func (f *fakeApp) Add(_ context.Context, topic string, repos []string) error {
 	return f.record("Add", topic, repos)
 }
-func (f *fakeApp) Open(_ context.Context, topic string) error      { return f.record("Open", topic) }
-func (f *fakeApp) Ls(_ context.Context, withPR bool) error         { return f.record("Ls", withPR) }
+func (f *fakeApp) Open(_ context.Context, o tmt.OpenOptions) error { return f.record("Open", o) }
+func (f *fakeApp) Ls(_ context.Context, o tmt.LsOptions) error     { return f.record("Ls", o) }
+func (f *fakeApp) SetAgentStatus(_ context.Context, o tmt.StatusOptions) error {
+	return f.record("SetAgentStatus", o)
+}
 func (f *fakeApp) Fresh(_ context.Context, query string) error     { return f.record("Fresh", query) }
 func (f *fakeApp) Done(_ context.Context, o tmt.DoneOptions) error { return f.record("Done", o) }
-func (f *fakeApp) Close(context.Context) error                     { return f.record("Close") }
-func (f *fakeApp) GC(context.Context) error                        { return f.record("GC") }
+func (f *fakeApp) Close(_ context.Context, yes bool) error         { return f.record("Close", yes) }
+func (f *fakeApp) GC(_ context.Context, yes bool) error            { return f.record("GC", yes) }
 func (f *fakeApp) Pick(context.Context) error                      { return f.record("Pick") }
 func (f *fakeApp) Switch(context.Context) error                    { return f.record("Switch") }
 func (f *fakeApp) Create(context.Context) error                    { return f.record("Create") }
@@ -83,12 +88,19 @@ func TestDispatch(t *testing.T) {
 		{[]string{"new", "web", "login"}, call{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Repos: []string{}}}}},
 		{[]string{"new", "-B", "feat/x", "web", "login", "api", "ui"}, call{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Branch: "feat/x", Repos: []string{"api", "ui"}}}}},
 		{[]string{"new", "web", "login", "api", "-B", "b"}, call{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Branch: "b", Repos: []string{"api"}}}}},
+		{[]string{"new", "-d", "--prompt", " fix it \n", "web", "login", "api"}, call{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Repos: []string{"api"}, Prompt: "fix it", Detach: true}}}},
+		{[]string{"new", "web", "login", "--detach"}, call{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Repos: []string{}, Detach: true}}}},
 		{[]string{"add", "api"}, call{"Add", []any{"", []string{"api"}}}},
 		{[]string{"add", "-t", "login", "api", "ui"}, call{"Add", []any{"login", []string{"api", "ui"}}}},
-		{[]string{"open"}, call{"Open", []any{""}}},
-		{[]string{"open", "login"}, call{"Open", []any{"login"}}},
-		{[]string{"ls"}, call{"Ls", []any{false}}},
-		{[]string{"ls", "-p"}, call{"Ls", []any{true}}},
+		{[]string{"open"}, call{"Open", []any{tmt.OpenOptions{}}}},
+		{[]string{"open", "login"}, call{"Open", []any{tmt.OpenOptions{Topic: "login"}}}},
+		{[]string{"open", "-d", "--prompt", "go", "login"}, call{"Open", []any{tmt.OpenOptions{Topic: "login", Prompt: "go", Detach: true}}}},
+		{[]string{"ls"}, call{"Ls", []any{tmt.LsOptions{}}}},
+		{[]string{"ls", "-p"}, call{"Ls", []any{tmt.LsOptions{PR: true}}}},
+		{[]string{"ls", "--json"}, call{"Ls", []any{tmt.LsOptions{JSON: true}}}},
+		{[]string{"ls", "--json", "-p"}, call{"Ls", []any{tmt.LsOptions{PR: true, JSON: true}}}},
+		{[]string{"status", "finished"}, call{"SetAgentStatus", []any{tmt.StatusOptions{State: tmt.StateFinished}}}},
+		{[]string{"status", "-t", "web-login", "blocked", "need", "review"}, call{"SetAgentStatus", []any{tmt.StatusOptions{Topic: "web-login", State: tmt.StateBlocked, Message: "need review"}}}},
 		{[]string{"fresh"}, call{"Fresh", []any{""}}},
 		{[]string{"fresh", "~/src"}, call{"Fresh", []any{"~/src"}}},
 		{[]string{"done"}, call{"Done", []any{tmt.DoneOptions{}}}},
@@ -96,8 +108,10 @@ func TestDispatch(t *testing.T) {
 		{[]string{"done", "-fy"}, call{"Done", []any{tmt.DoneOptions{Force: true, Yes: true}}}},
 		{[]string{"done", "login", "-f"}, call{"Done", []any{tmt.DoneOptions{Topic: "login", Force: true}}}},
 		{[]string{"done", "-y", "login", "-f"}, call{"Done", []any{tmt.DoneOptions{Topic: "login", Force: true, Yes: true}}}},
-		{[]string{"close"}, call{"Close", nil}},
-		{[]string{"gc"}, call{"GC", nil}},
+		{[]string{"close"}, call{"Close", []any{false}}},
+		{[]string{"close", "-y"}, call{"Close", []any{true}}},
+		{[]string{"gc"}, call{"GC", []any{false}}},
+		{[]string{"gc", "--yes"}, call{"GC", []any{true}}},
 		{[]string{"pick"}, call{"Pick", nil}},
 		{[]string{"switch"}, call{"Switch", nil}},
 		{[]string{"_preview", "task", "/t/web/web-login"}, call{"Preview", []any{"task", "/t/web/web-login", ""}}},
@@ -127,16 +141,18 @@ func TestArgErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"new"}, "tmt: usage: tmt new [-B branch] <base> <topic> [repo...]\n"},
-		{[]string{"new", "web"}, "tmt: usage: tmt new [-B branch] <base> <topic> [repo...]\n"},
+		{[]string{"new"}, "tmt: usage: tmt new [-d] [-B branch] [--prompt text | --prompt-file path] <base> <topic> [repo...]\n"},
+		{[]string{"new", "web"}, "tmt: usage: tmt new [-d] [-B branch] [--prompt text | --prompt-file path] <base> <topic> [repo...]\n"},
 		{[]string{"add"}, "tmt: usage: tmt add [-t topic] <repo...>\n"},
 		{[]string{"add", "-t", "login"}, "tmt: usage: tmt add [-t topic] <repo...>\n"},
-		{[]string{"open", "a", "b"}, "tmt: usage: tmt open [topic]\n"},
-		{[]string{"ls", "x"}, "tmt: usage: tmt ls [-p]\n"},
+		{[]string{"open", "a", "b"}, "tmt: usage: tmt open [-d] [--prompt text | --prompt-file path] [topic]\n"},
+		{[]string{"ls", "x"}, "tmt: usage: tmt ls [-p] [--json]\n"},
+		{[]string{"status"}, "tmt: usage: tmt status [-t topic] <running|blocked|finished> [message...]\n"},
 		{[]string{"fresh", "a", "b"}, "tmt: usage: tmt fresh [base]\n"},
 		{[]string{"done", "a", "b"}, "tmt: usage: tmt done [-f] [-y] [topic]\n"},
 		{[]string{"done", "a", "-f", "b"}, "tmt: usage: tmt done [-f] [-y] [topic]\n"},
-		{[]string{"close", "x"}, "tmt: usage: tmt close\n"},
+		{[]string{"close", "x"}, "tmt: usage: tmt close [-y]\n"},
+		{[]string{"gc", "x"}, "tmt: usage: tmt gc [-y]\n"},
 		{[]string{"_preview", "task"}, "tmt: usage: tmt _preview <kind> <dir> [name]\n"},
 		{[]string{"_complete"}, "tmt: usage: tmt _complete <kind> [arg]\n"},
 	}
@@ -153,6 +169,48 @@ func TestArgErrors(t *testing.T) {
 				t.Fatalf("builds = %d, calls = %v; want none", h.builds, h.app.calls)
 			}
 		})
+	}
+}
+
+func TestPromptFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(path, []byte("\nfix the login bug\nthen add tests\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := execute(t, &fakeApp{}, "new", "--prompt-file", path, "web", "login")
+	if h.runCode != 0 {
+		t.Fatalf("code = %d; stderr %q", h.runCode, h.stderr.String())
+	}
+	want := []call{{"New", []any{tmt.NewOptions{Base: "web", Topic: "login", Repos: []string{}, Prompt: "fix the login bug\nthen add tests"}}}}
+	if !reflect.DeepEqual(h.app.calls, want) {
+		t.Fatalf("calls = %#v; want %#v", h.app.calls, want)
+	}
+}
+
+func TestPromptStdin(t *testing.T) {
+	f := &fakeApp{}
+	cmd := newRootCmd(func() (app, func() error, error) { return f, nil, nil })
+	cmd.SetIn(strings.NewReader("from stdin\n"))
+	var stderr bytes.Buffer
+	if code := run(context.Background(), cmd, []string{"open", "--prompt-file", "-", "login"}, &stderr); code != 0 {
+		t.Fatalf("code = %d; stderr %q", code, stderr.String())
+	}
+	want := []call{{"Open", []any{tmt.OpenOptions{Topic: "login", Prompt: "from stdin"}}}}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls = %#v; want %#v", f.calls, want)
+	}
+}
+
+func TestPromptErrors(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	for _, args := range [][]string{
+		{"new", "--prompt", "a", "--prompt-file", missing, "web", "login"},
+		{"new", "--prompt-file", missing, "web", "login"},
+	} {
+		h := execute(t, &fakeApp{}, args...)
+		if h.runCode != 1 || len(h.app.calls) != 0 {
+			t.Fatalf("%v: code = %d, calls = %v", args, h.runCode, h.app.calls)
+		}
 	}
 }
 
@@ -192,7 +250,7 @@ func TestHelp(t *testing.T) {
 			t.Fatalf("%v: built app for help", args)
 		}
 	}
-	for _, sub := range []string{"create", "new", "add", "open", "ls", "fresh", "done", "close", "gc", "pick", "switch"} {
+	for _, sub := range []string{"create", "new", "add", "open", "ls", "status", "fresh", "done", "close", "gc", "pick", "switch"} {
 		if !strings.Contains(usage, "tmt "+sub) {
 			t.Errorf("usage missing %s", sub)
 		}

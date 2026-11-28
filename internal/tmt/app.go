@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 var (
@@ -56,6 +57,7 @@ type App struct {
 	Shell  DevShell
 	Out    io.Writer
 	Err    io.Writer
+	Now    func() time.Time
 }
 
 func (a *App) logf(format string, args ...any) {
@@ -188,8 +190,12 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 	return a.Env.Allow(ctx, t.Dir)
 }
 
-func (a *App) agentCommand(t Task) string {
-	return a.Env.Wrap(t.Dir, a.agent(t).Command(t.Dir))
+func (a *App) agentCommand(t Task, withPrompt bool) string {
+	promptFile := ""
+	if withPrompt && t.Prompt != "" {
+		promptFile = filepath.Join(t.Dir, PromptFile)
+	}
+	return a.Env.Wrap(t.Dir, a.agent(t).Command(t.Dir, promptFile))
 }
 
 func (a *App) liveSessions(ctx context.Context) (map[string]bool, error) {
@@ -242,7 +248,7 @@ func (a *App) ensureSession(ctx context.Context, t Task, command string) error {
 }
 
 func (a *App) open(ctx context.Context, t Task) error {
-	if err := a.ensureSession(ctx, t, a.agentCommand(t)); err != nil {
+	if err := a.ensureSession(ctx, t, a.agentCommand(t, false)); err != nil {
 		return err
 	}
 	return a.Mux.Attach(ctx, t.Session)

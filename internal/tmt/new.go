@@ -17,12 +17,18 @@ type NewOptions struct {
 	Topic  string
 	Branch string
 	Repos  []string
+	Prompt string
+	Detach bool
 }
 
 func (a *App) New(ctx context.Context, o NewOptions) error {
 	t, err := a.create(ctx, o)
 	if err != nil {
 		return err
+	}
+	if o.Detach {
+		a.logf("created %s in %s", t.Topic, t.Dir)
+		return nil
 	}
 	return a.Mux.Attach(ctx, t.Session)
 }
@@ -52,6 +58,7 @@ func (a *App) create(ctx context.Context, o NewOptions) (t Task, err error) {
 		Base:    base,
 		Branch:  branch,
 		Session: name,
+		Prompt:  o.Prompt,
 	}
 	if _, err := os.Lstat(t.Dir); err == nil {
 		return Task{}, fmt.Errorf("%s already exists", t.Dir)
@@ -60,12 +67,14 @@ func (a *App) create(ctx context.Context, o NewOptions) (t Task, err error) {
 	if err := a.Tasks.Create(ctx, t); err != nil {
 		return Task{}, err
 	}
+	created := t
 	defer func() {
 		if err != nil {
-			a.rollback(context.WithoutCancel(ctx), t, nil)
+			a.rollback(context.WithoutCancel(ctx), created, nil)
 		}
 	}()
 
+	a.recordStatus(ctx, t, StateCreating, "")
 	for _, r := range repos {
 		if err := os.Mkdir(filepath.Join(t.Dir, r), 0o755); err != nil {
 			return Task{}, err
@@ -98,12 +107,15 @@ func (a *App) Fill(ctx context.Context, topic string, repos []string) (string, e
 		return "", err
 	}
 	a.setStatus(ctx, MuxWorking, "creating worktrees")
+	a.recordStatus(ctx, t, StateCreating, "creating worktrees")
 	if err := a.fill(ctx, t, repos); err != nil {
 		a.setStatus(context.WithoutCancel(ctx), MuxBlocked, err.Error())
+		a.recordStatus(context.WithoutCancel(ctx), t, StateBlocked, err.Error())
 		return "", err
 	}
 	a.setStatus(ctx, MuxReady, "")
-	return a.agentCommand(t), nil
+	a.recordStatus(ctx, t, StateRunning, "")
+	return a.agentCommand(t, true), nil
 }
 
 func (a *App) fill(ctx context.Context, t Task, repos []string) (err error) {
@@ -171,10 +183,43 @@ func (a *App) Add(ctx context.Context, topic string, repos []string) error {
 	return a.writeContext(ctx, t)
 }
 
-func (a *App) Open(ctx context.Context, topic string) error {
-	t, err := a.resolveTask(ctx, topic)
+type OpenOptions struct {
+	Topic  string
+	Prompt string
+	Detach bool
+}
+
+func (a *App) Open(ctx context.Context, o OpenOptions) error {
+	t, err := a.resolveTask(ctx, o.Topic)
 	if err != nil {
 		return err
 	}
-	return a.open(ctx, t)
+	if o.Prompt == "" {
+		if o.Detach {
+			return a.ensureSession(ctx, t, a.agentCommand(t, false))
+		}
+		return a.open(ctx, t)
+	}
+	live, err := a.Mux.HasSession(ctx, t.Session)
+	if err != nil {
+		return err
+	}
+	if live {
+		return fmt.Errorf("session %s is already running; close it before passing a prompt", t.Session)
+	}
+	t.Prompt = o.Prompt
+	if err := a.Tasks.SetPrompt(ctx, t, t.Prompt); err != nil {
+		return err
+	}
+	if err := a.writeContext(ctx, t); err != nil {
+		return err
+	}
+	if err := a.ensureSession(ctx, t, a.agentCommand(t, true)); err != nil {
+		return err
+	}
+	a.recordStatus(ctx, t, StateRunning, "")
+	if o.Detach {
+		return nil
+	}
+	return a.Mux.Attach(ctx, t.Session)
 }

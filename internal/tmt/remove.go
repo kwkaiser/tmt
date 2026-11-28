@@ -119,7 +119,7 @@ func (a *App) Done(ctx context.Context, o DoneOptions) error {
 	return a.removeTask(ctx, t, removeOptions{force: o.Force, promptForce: !o.Yes})
 }
 
-func (a *App) Close(ctx context.Context) error {
+func (a *App) Close(ctx context.Context, yes bool) error {
 	session, err := a.Mux.CurrentSession(ctx)
 	if err != nil {
 		return err
@@ -129,14 +129,16 @@ func (a *App) Close(ctx context.Context) error {
 	}
 	t, err := a.Tasks.BySession(ctx, session)
 	if errors.Is(err, ErrTaskNotFound) {
-		ok, err := a.Prompt.Confirm(ctx, fmt.Sprintf("close %s?", session))
-		if err != nil || !ok {
-			return err
+		if !yes {
+			ok, err := a.Prompt.Confirm(ctx, fmt.Sprintf("close %s?", session))
+			if err != nil || !ok {
+				return err
+			}
 		}
 		return a.Mux.KillSession(ctx, session)
 	}
 	if err != nil {
 		return err
 	}
-	return a.removeTask(ctx, t, removeOptions{promptForce: true})
+	return a.removeTask(ctx, t, removeOptions{promptForce: !yes})
 }

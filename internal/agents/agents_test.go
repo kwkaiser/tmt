@@ -9,7 +9,7 @@ import (
 
 type fake struct{ name string }
 
-func (f *fake) Command(string) string                                  { return f.name }
+func (f *fake) Command(string, string) string                          { return f.name }
 func (f *fake) Trust(context.Context, string) error                    { return nil }
 func (f *fake) WriteContext(context.Context, tmt.Task, []string) error { return nil }
 func (f *fake) ReadContext(context.Context, tmt.Task) (string, error)  { return "", nil }

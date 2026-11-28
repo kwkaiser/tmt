@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -18,14 +19,15 @@ var version = "dev"
 
 const usage = `usage:
   tmt create
-  tmt new [-B branch] <base> <topic> [repo...]
+  tmt new [-d] [-B branch] [--prompt text | --prompt-file path] <base> <topic> [repo...]
   tmt add [-t topic] <repo...>
-  tmt open [topic]
-  tmt ls [-p]
+  tmt open [-d] [--prompt text | --prompt-file path] [topic]
+  tmt ls [-p] [--json]
+  tmt status [-t topic] <running|blocked|finished> [message...]
   tmt fresh [base]
   tmt done [-f] [-y] [topic]
-  tmt close
-  tmt gc
+  tmt close [-y]
+  tmt gc [-y]
   tmt pick
   tmt switch
 
@@ -37,12 +39,13 @@ var errUsage = errors.New("usage")
 type app interface {
 	New(ctx context.Context, o tmt.NewOptions) error
 	Add(ctx context.Context, topic string, repos []string) error
-	Open(ctx context.Context, topic string) error
-	Ls(ctx context.Context, withPR bool) error
+	Open(ctx context.Context, o tmt.OpenOptions) error
+	Ls(ctx context.Context, o tmt.LsOptions) error
+	SetAgentStatus(ctx context.Context, o tmt.StatusOptions) error
 	Fresh(ctx context.Context, query string) error
 	Done(ctx context.Context, o tmt.DoneOptions) error
-	Close(ctx context.Context) error
-	GC(ctx context.Context) error
+	Close(ctx context.Context, yes bool) error
+	GC(ctx context.Context, yes bool) error
 	Pick(ctx context.Context) error
 	Switch(ctx context.Context) error
 	Create(ctx context.Context) error
@@ -73,6 +76,36 @@ func arg(args []string, i int) string {
 		return args[i]
 	}
 	return ""
+}
+
+type promptFlags struct {
+	text  string
+	file  string
+	stdin io.Reader
+}
+
+func (p *promptFlags) register(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&p.text, "prompt", "", "initial instruction for the task agent")
+	cmd.Flags().StringVar(&p.file, "prompt-file", "", "read the initial instruction from a file, or - for stdin")
+	cmd.MarkFlagsMutuallyExclusive("prompt", "prompt-file")
+	cmd.PreRun = func(cmd *cobra.Command, _ []string) { p.stdin = cmd.InOrStdin() }
+}
+
+func (p *promptFlags) read() (string, error) {
+	var data []byte
+	var err error
+	switch p.file {
+	case "":
+		return strings.TrimSpace(p.text), nil
+	case "-":
+		data, err = io.ReadAll(p.stdin)
+	default:
+		data, err = os.ReadFile(p.file)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read prompt: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func newRootCmd(build factory) *cobra.Command {
@@ -123,11 +156,19 @@ func newRootCmd(build factory) *cobra.Command {
 		func(ctx context.Context, a app, _ []string) error { return a.Create(ctx) }))
 
 	var branch string
-	newCmd := sub("new [-B branch] <base> <topic> [repo...]", "create a task with worktrees for the given repos", 2, -1,
+	var newDetach bool
+	var newPrompt promptFlags
+	newCmd := sub("new [-d] [-B branch] [--prompt text | --prompt-file path] <base> <topic> [repo...]", "create a task with worktrees for the given repos", 2, -1,
 		func(ctx context.Context, a app, args []string) error {
-			return a.New(ctx, tmt.NewOptions{Base: args[0], Topic: args[1], Branch: branch, Repos: args[2:]})
+			prompt, err := newPrompt.read()
+			if err != nil {
+				return err
+			}
+			return a.New(ctx, tmt.NewOptions{Base: args[0], Topic: args[1], Branch: branch, Repos: args[2:], Prompt: prompt, Detach: newDetach})
 		})
 	newCmd.Flags().StringVarP(&branch, "branch", "B", "", "branch name")
+	newCmd.Flags().BoolVarP(&newDetach, "detach", "d", false, "create the session without attaching to it")
+	newPrompt.register(newCmd)
 	root.AddCommand(newCmd)
 
 	var addTopic string
@@ -136,14 +177,34 @@ func newRootCmd(build factory) *cobra.Command {
 	addCmd.Flags().StringVarP(&addTopic, "topic", "t", "", "task topic")
 	root.AddCommand(addCmd)
 
-	root.AddCommand(sub("open [topic]", "open the session for a task", 0, 1,
-		func(ctx context.Context, a app, args []string) error { return a.Open(ctx, arg(args, 0)) }))
+	var openDetach bool
+	var openPrompt promptFlags
+	openCmd := sub("open [-d] [--prompt text | --prompt-file path] [topic]", "open the session for a task", 0, 1,
+		func(ctx context.Context, a app, args []string) error {
+			prompt, err := openPrompt.read()
+			if err != nil {
+				return err
+			}
+			return a.Open(ctx, tmt.OpenOptions{Topic: arg(args, 0), Prompt: prompt, Detach: openDetach})
+		})
+	openCmd.Flags().BoolVarP(&openDetach, "detach", "d", false, "start the session without attaching to it")
+	openPrompt.register(openCmd)
+	root.AddCommand(openCmd)
 
-	var withPR bool
-	lsCmd := sub("ls [-p]", "list tasks and worktree status", 0, 0,
-		func(ctx context.Context, a app, _ []string) error { return a.Ls(ctx, withPR) })
-	lsCmd.Flags().BoolVarP(&withPR, "pr", "p", false, "include PR state")
+	var ls tmt.LsOptions
+	lsCmd := sub("ls [-p] [--json]", "list tasks and worktree status", 0, 0,
+		func(ctx context.Context, a app, _ []string) error { return a.Ls(ctx, ls) })
+	lsCmd.Flags().BoolVarP(&ls.PR, "pr", "p", false, "include PR state")
+	lsCmd.Flags().BoolVar(&ls.JSON, "json", false, "print tasks as JSON")
 	root.AddCommand(lsCmd)
+
+	var statusTopic string
+	statusCmd := sub("status [-t topic] <running|blocked|finished> [message...]", "record the agent status of a task", 1, -1,
+		func(ctx context.Context, a app, args []string) error {
+			return a.SetAgentStatus(ctx, tmt.StatusOptions{Topic: statusTopic, State: tmt.AgentState(args[0]), Message: strings.Join(args[1:], " ")})
+		})
+	statusCmd.Flags().StringVarP(&statusTopic, "topic", "t", "", "task topic")
+	root.AddCommand(statusCmd)
 
 	root.AddCommand(sub("fresh [base]", "fetch and fast-forward the default branch of every repo in a base", 0, 1,
 		func(ctx context.Context, a app, args []string) error { return a.Fresh(ctx, arg(args, 0)) }))
@@ -159,10 +220,17 @@ func newRootCmd(build factory) *cobra.Command {
 	doneCmd.Flags().BoolVarP(&done.Yes, "yes", "y", false, "never prompt; refuse instead of offering to force")
 	root.AddCommand(doneCmd)
 
-	root.AddCommand(sub("close", "close the current session, running tmt done if it belongs to a task", 0, 0,
-		func(ctx context.Context, a app, _ []string) error { return a.Close(ctx) }))
-	root.AddCommand(sub("gc", "remove tasks whose PRs are merged or closed", 0, 0,
-		func(ctx context.Context, a app, _ []string) error { return a.GC(ctx) }))
+	var closeYes bool
+	closeCmd := sub("close [-y]", "close the current session, running tmt done if it belongs to a task", 0, 0,
+		func(ctx context.Context, a app, _ []string) error { return a.Close(ctx, closeYes) })
+	closeCmd.Flags().BoolVarP(&closeYes, "yes", "y", false, "never prompt; refuse instead of offering to force")
+	root.AddCommand(closeCmd)
+
+	var gcYes bool
+	gcCmd := sub("gc [-y]", "remove tasks whose PRs are merged or closed", 0, 0,
+		func(ctx context.Context, a app, _ []string) error { return a.GC(ctx, gcYes) })
+	gcCmd.Flags().BoolVarP(&gcYes, "yes", "y", false, "remove without confirming")
+	root.AddCommand(gcCmd)
 	root.AddCommand(sub("pick", "pick a repo in the current task, or a task", 0, 0,
 		func(ctx context.Context, a app, _ []string) error { return a.Pick(ctx) }))
 	root.AddCommand(sub("switch", "pick any task and open its session", 0, 0,

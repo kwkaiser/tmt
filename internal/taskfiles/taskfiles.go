@@ -17,7 +17,10 @@ const (
 	DotEnvFile = ".env"
 )
 
-func Command(dir, cmd string) string {
+func Command(dir, cmd, promptFile string) string {
+	if promptFile != "" {
+		cmd += ` "$(cat ` + shellQuote(promptFile) + `)"`
+	}
 	if info, err := os.Stat(filepath.Join(dir, MCPEnvFile)); err != nil || !info.Mode().IsRegular() {
 		return cmd
 	}
@@ -34,7 +37,14 @@ func RenderContext(t tmt.Task, worktrees []string) string {
 	}
 	b.WriteString("\nEvery other directory is a symlink to the shared main checkout and is read-only.\n")
 	fmt.Fprintf(&b, "To modify one, first run `tmt add -t %s <repo>`, which converts it into a worktree for this task.\n", t.Topic)
+	if prompt := strings.TrimSpace(t.Prompt); prompt != "" {
+		fmt.Fprintf(&b, "\n## Initial prompt\n\n%s\n", prompt)
+	}
 	return b.String()
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func RepoFiles(dir, name string) ([]string, error) {

@@ -14,7 +14,7 @@ type retiree struct {
 	branch string
 }
 
-func (a *App) GC(ctx context.Context) error {
+func (a *App) GC(ctx context.Context, yes bool) error {
 	refs, err := a.taskBranches(ctx)
 	if err != nil {
 		return err
@@ -132,12 +132,14 @@ func (a *App) GC(ctx context.Context) error {
 		}
 	}
 
-	ok, err := a.Prompt.Confirm(ctx, "Remove all of these?")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrAborted
+	if !yes {
+		ok, err := a.Prompt.Confirm(ctx, "Remove all of these?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrAborted
+		}
 	}
 	for _, r := range stale {
 		repo, err := a.Git.Open(r.Src)

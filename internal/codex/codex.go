@@ -32,8 +32,8 @@ func New(command string) *Agent {
 	return &Agent{Cmd: command, Getenv: os.Getenv, HomeDir: os.UserHomeDir}
 }
 
-func (a *Agent) Command(dir string) string {
-	return taskfiles.Command(dir, a.Cmd)
+func (a *Agent) Command(dir, promptFile string) string {
+	return taskfiles.Command(dir, a.Cmd, promptFile)
 }
 
 func (a *Agent) configPath() (string, error) {

@@ -116,7 +116,21 @@ func TestWriteAndReadContext(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); !os.IsNotExist(err) {
 		t.Fatalf("CLAUDE.md should not exist: %v", err)
 	}
-	if got, want := a.Command(dir), "(set -a && . ./.env.mcp && set +a && exec codex)"; got != want {
+	if got, want := a.Command(dir, ""), "(set -a && . ./.env.mcp && set +a && exec codex)"; got != want {
 		t.Fatalf("Command = %q; want %q", got, want)
+	}
+	if got, want := a.Command(dir, "/t/p"), `(set -a && . ./.env.mcp && set +a && exec codex "$(cat '/t/p')")`; got != want {
+		t.Fatalf("Command = %q; want %q", got, want)
+	}
+}
+
+func TestWriteContextRecordsPrompt(t *testing.T) {
+	dir := t.TempDir()
+	task := tmt.Task{Dir: dir, Topic: "work-x", Base: "/base", Branch: "b", Prompt: "ship it"}
+	if err := newTestAgent("", t.TempDir()).WriteContext(context.Background(), task, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(dir, "AGENTS.md")); !strings.HasSuffix(got, "\n## Initial prompt\n\nship it\n") {
+		t.Fatalf("AGENTS.md = %q", got)
 	}
 }

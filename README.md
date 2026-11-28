@@ -27,6 +27,22 @@ tmt done work-auth                    # remove task (asks to force if work is un
 tmt gc                                # remove tasks whose PRs are merged/closed
 ```
 
+### Driving tmt from another agent
+
+Every lifecycle command can run without a TTY:
+
+```sh
+tmt new -d --prompt-file plan.md work auth api web   # create without attaching; the agent starts with the prompt
+tmt open -d --prompt "continue" work-auth            # restart a stopped session with a new prompt
+tmt ls --json -p                                     # tasks, repos, session up/down, agent status
+tmt status -t work-auth blocked "need API keys"      # record running|blocked|finished for ls --json
+tmt done -y work-auth                                # exit 2 instead of prompting when work is unpushed
+tmt gc -y                                            # clean up without confirming
+tmt close -y
+```
+
+The prompt is passed to the agent command as its first argument and recorded under `## Initial prompt` in `CLAUDE.md`/`AGENTS.md`. Agent status starts as `creating`, becomes `running` once worktrees exist (or `blocked` if that fails), and is otherwise set with `tmt status`.
+
 ## Task dev shell
 
 Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flake`, with every repo following the newest locked `nixpkgs`. The task `.envrc` loads it via `use flake`, repeats each repo's `dotenv`/`dotenv_if_exists` lines, and is `direnv allow`ed; the root agent window runs under `direnv exec`. Conflicting tools resolve to a single version; open a repo's own window for its exact toolchain.

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
@@ -307,5 +308,68 @@ func TestRemove(t *testing.T) {
 	}
 	if _, err := os.Stat(y.Dir); err != nil {
 		t.Fatalf("sibling removed: %v", err)
+	}
+}
+
+func TestPromptRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	task := newTask(root, "/src/api", "alpha")
+	task.Prompt = "fix the bug\nthen add tests\n"
+	mustCreate(t, s, task)
+
+	got, err := s.ByTopic(t.Context(), "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != task {
+		t.Fatalf("ByTopic = %+v; want %+v", got, task)
+	}
+	entries, err := s.Entries(t.Context(), task)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("Entries = %v, %v; want none", entries, err)
+	}
+
+	if err := s.SetPrompt(t.Context(), task, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ByTopic(t.Context(), "alpha"); got.Prompt != "again" {
+		t.Fatalf("Prompt = %q; want again", got.Prompt)
+	}
+	if err := s.SetPrompt(t.Context(), task, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(task.Dir, tmt.PromptFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("prompt file still present: %v", err)
+	}
+	if err := s.SetPrompt(t.Context(), task, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStatusRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	task := newTask(root, "/src/api", "alpha")
+	mustCreate(t, s, task)
+
+	if _, ok, err := s.Status(t.Context(), task); err != nil || ok {
+		t.Fatalf("Status = %v, %v; want none", ok, err)
+	}
+	when := time.Date(2026, 11, 28, 12, 30, 0, 0, time.UTC)
+	want := tmt.TaskStatus{State: tmt.StateBlocked, Message: "need review on api", Updated: when}
+	if err := s.SetStatus(t.Context(), task, tmt.TaskStatus{State: tmt.StateBlocked, Message: "need review\non  api", Updated: when}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.Status(t.Context(), task)
+	if err != nil || !ok {
+		t.Fatalf("Status = %v, %v", ok, err)
+	}
+	if !got.Updated.Equal(want.Updated) || got.State != want.State || got.Message != want.Message {
+		t.Fatalf("Status = %+v; want %+v", got, want)
+	}
+	entries, err := s.Entries(t.Context(), task)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("Entries = %v, %v; want none", entries, err)
 	}
 }
