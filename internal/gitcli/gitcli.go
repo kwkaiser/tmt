@@ -177,6 +177,34 @@ func (r *Repo) DefaultRef(ctx context.Context) (string, error) {
 			return r.line(ctx, "rev-parse", "--abbrev-ref", ref)
 		}
 	}
+	return r.localDefault(ctx)
+}
+
+func (r *Repo) localDefault(ctx context.Context) (string, error) {
+	var candidates []string
+	if b, err := r.line(ctx, "config", "--get", "init.defaultBranch"); err == nil && b != "" {
+		candidates = append(candidates, b)
+	}
+	candidates = append(candidates, "main", "master")
+	if b, err := r.line(ctx, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil && b != "" {
+		candidates = append(candidates, b)
+	}
+	for _, b := range candidates {
+		ok, err := r.HasBranch(ctx, b)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return b, nil
+		}
+	}
+	sha, ok, err := r.RevParse(ctx, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return sha, nil
+	}
 	return "HEAD", nil
 }
 

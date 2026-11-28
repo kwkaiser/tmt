@@ -111,8 +111,45 @@ func TestDefaultRef(t *testing.T) {
 	local := filepath.Join(f.root, "local")
 	git(t, f.root, "init", "--quiet", local)
 	commit(t, local, "x")
-	if ref, err = open(t, local).DefaultRef(ctx); err != nil || ref != "HEAD" {
-		t.Fatalf("DefaultRef with no origin = %q, %v", ref, err)
+	git(t, local, "checkout", "--quiet", "-b", "feature")
+	commit(t, local, "y")
+	if ref, err = open(t, local).DefaultRef(ctx); err != nil || ref != "main" {
+		t.Fatalf("DefaultRef with no origin = %q, %v; want main", ref, err)
+	}
+}
+
+func TestDefaultRefLocalOnly(t *testing.T) {
+	ctx := context.Background()
+	root := hermetic(t)
+
+	master := filepath.Join(root, "master")
+	git(t, root, "init", "--quiet", "--initial-branch=master", master)
+	commit(t, master, "x")
+	git(t, master, "checkout", "--quiet", "-b", "feature")
+	if ref, err := open(t, master).DefaultRef(ctx); err != nil || ref != "master" {
+		t.Fatalf("DefaultRef = %q, %v; want master", ref, err)
+	}
+
+	trunk := filepath.Join(root, "trunk")
+	git(t, root, "init", "--quiet", "--initial-branch=trunk", trunk)
+	commit(t, trunk, "x")
+	if ref, err := open(t, trunk).DefaultRef(ctx); err != nil || ref != "trunk" {
+		t.Fatalf("DefaultRef = %q, %v; want trunk", ref, err)
+	}
+	t.Setenv("GIT_CONFIG_VALUE_0", "trunk")
+	git(t, trunk, "checkout", "--quiet", "-b", "feature")
+	if ref, err := open(t, trunk).DefaultRef(ctx); err != nil || ref != "trunk" {
+		t.Fatalf("DefaultRef with init.defaultBranch = %q, %v; want trunk", ref, err)
+	}
+
+	detached := filepath.Join(root, "detached")
+	git(t, root, "init", "--quiet", "--initial-branch=dev", detached)
+	commit(t, detached, "x")
+	sha := git(t, detached, "rev-parse", "HEAD")
+	git(t, detached, "checkout", "--quiet", "--detach")
+	git(t, detached, "branch", "--quiet", "-D", "dev")
+	if ref, err := open(t, detached).DefaultRef(ctx); err != nil || ref != sha {
+		t.Fatalf("DefaultRef detached = %q, %v; want %s", ref, err, sha)
 	}
 }
 

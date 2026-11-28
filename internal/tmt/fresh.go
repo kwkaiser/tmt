@@ -109,10 +109,10 @@ func (a *App) freshRepo(ctx context.Context, src string, progress io.Writer) []s
 		return row("-", "fetch failed")
 	}
 	def, err := repo.DefaultRef(ctx)
-	if err != nil || def == "HEAD" {
+	def, ok := strings.CutPrefix(def, "origin/")
+	if err != nil || !ok {
 		return row("-", "fetched, no origin default branch")
 	}
-	def = strings.TrimPrefix(def, "origin/")
 	if has, err := repo.HasBranch(ctx, def); err != nil || !has {
 		return row(def, "fetched, no local branch")
 	}
