@@ -7,31 +7,44 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
+    let
+      envOr = name: fallback:
+        let value = builtins.getEnv name; in if value == "" then fallback else value;
 
-        envOr = name: fallback:
-          let value = builtins.getEnv name; in if value == "" then fallback else value;
+      version = envOr "VERSION" (self.shortRev or self.dirtyShortRev or "dev");
+    in
+    flake-utils.lib.eachDefaultSystem
+      (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          packages.tmt = pkgs.callPackage ./nix/tmt.nix {
+            src = ./.;
+            inherit version;
+          };
 
-        version = envOr "VERSION" (self.shortRev or self.dirtyShortRev or "dev");
-      in
-      {
-        packages.tmt = pkgs.callPackage ./nix/tmt.nix {
-          src = ./.;
+          packages.default = self.packages.${system}.tmt;
+
+          devShells.default = pkgs.mkShell {
+            packages = with pkgs; [
+              go
+              gopls
+              golangci-lint
+              go-task
+              git
+            ];
+          };
+        })
+    // {
+      overlays.default = final: _: {
+        tmt = final.callPackage ./nix/tmt.nix {
+          src = self;
           inherit version;
         };
+      };
 
-        packages.default = self.packages.${system}.tmt;
-
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            go
-            gopls
-            golangci-lint
-            go-task
-            git
-          ];
-        };
-      });
+      homeModules.default = import ./nix/hm-module.nix self;
+      homeManagerModules.default = self.homeModules.default;
+    };
 }

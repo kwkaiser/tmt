@@ -47,6 +47,31 @@ The prompt is passed to the agent command as its first argument and recorded und
 
 Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flake`, with every repo following the newest locked `nixpkgs`. The task `.envrc` loads it via `use flake`, repeats each repo's `dotenv`/`dotenv_if_exists` lines, and is `direnv allow`ed; the root agent window runs under `direnv exec`. Conflicting tools resolve to a single version; open a repo's own window for its exact toolchain.
 
+## Home Manager
+
+The flake exports `homeModules.default` (also `homeManagerModules.default`), which installs tmt with zsh completions and writes `config.yaml`:
+
+```nix
+{
+  inputs.tmt.url = "git+https://git.kwkaiser.io/kwkaiser/tmt";
+
+  # in a home-manager module
+  imports = [ inputs.tmt.homeModules.default ];
+
+  programs.tmt = {
+    enable = true;
+    environment.TMT_BRANCH_PREFIX = "me/";
+    settings = {
+      agent = "claude";
+      agents.claude = "ccpm";
+      dirs."~/Documents/personal/website" = "codex";
+    };
+  };
+}
+```
+
+`environment` is baked into the binary and applies only to variables unset at runtime. `tmuxPackage` defaults to `programs.tmux.package`. When the stylix home-manager module is enabled, tmt's colors and fzf pickers follow its palette; set `programs.tmt.stylix.enable = false` to opt out.
+
 ## Configuration
 
 | Variable            | Default                               |

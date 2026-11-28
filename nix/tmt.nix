@@ -1,5 +1,6 @@
 { lib
 , buildGoModule
+, installShellFiles
 , writeText
 , tmux
 , git
@@ -47,7 +48,11 @@ buildGoModule {
     cp ${bundled} internal/cli/bundled_nix.go
   '';
 
-  postInstall = lib.optionalString (mainProgram != "tmt") ''
+  nativeBuildInputs = [ installShellFiles ];
+
+  postInstall = ''
+    installShellCompletion --zsh completions/_tmt
+  '' + lib.optionalString (mainProgram != "tmt") ''
     mv $out/bin/tmt $out/bin/${mainProgram}
   '';
 
