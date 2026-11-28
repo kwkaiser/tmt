@@ -90,6 +90,7 @@ func (a *App) addRepo(ctx context.Context, t Task, name string, created *[]creat
 	if err := a.Env.Allow(ctx, target); err != nil {
 		return err
 	}
+	a.Env.Warm(target)
 
 	has, err := a.Mux.HasSession(ctx, t.Session)
 	if err != nil {

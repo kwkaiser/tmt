@@ -45,7 +45,7 @@ The prompt is passed to the agent command as its first argument and recorded und
 
 ## Task dev shell
 
-Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flake`, with every repo following the newest locked `nixpkgs`. The task `.envrc` loads it via `use flake`, repeats each repo's `dotenv`/`dotenv_if_exists` lines, and is `direnv allow`ed; the root agent window runs under `direnv exec`. Conflicting tools resolve to a single version; open a repo's own window for its exact toolchain.
+Repos whose `flake.nix` defines a `devShell` are combined into `<task>/.tmt-flake`, with every repo following the newest locked `nixpkgs`. The task `.envrc` loads it via `use flake`, refreshing `.tmt-flake/flake.lock` only when a repo's `flake.nix`/`flake.lock` is newer than it, repeats each repo's `dotenv`/`dotenv_if_exists` lines, and is `direnv allow`ed; the root agent window runs under `direnv exec`. Each allowed `.envrc` (task root and new worktrees) is warmed with a detached `direnv exec <dir> true` so the dev shell is cached before a shell opens. Conflicting tools resolve to a single version; open a repo's own window for its exact toolchain.
 
 ## Home Manager
 

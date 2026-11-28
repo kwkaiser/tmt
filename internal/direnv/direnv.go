@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"git.kwkaiser.io/kwkaiser/tmt/internal/tmt"
 )
@@ -47,6 +48,22 @@ func (d *Direnv) Allow(ctx context.Context, dir string) error {
 		return fmt.Errorf("direnv allow %s: %w", dir, err)
 	}
 	return nil
+}
+
+func (d *Direnv) Warm(dir string) {
+	if !isRegular(filepath.Join(dir, ".envrc")) {
+		return
+	}
+	bin, ok := lookPath(d.bin())
+	if !ok {
+		return
+	}
+	cmd := exec.Command(bin, "exec", dir, "true")
+	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err == nil {
+		_ = cmd.Process.Release()
+	}
 }
 
 func (d *Direnv) Wrap(dir, command string) string {

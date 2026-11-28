@@ -187,7 +187,11 @@ func (a *App) writeContext(ctx context.Context, t Task) error {
 	if err := a.Shell.Write(ctx, t); err != nil {
 		return err
 	}
-	return a.Env.Allow(ctx, t.Dir)
+	if err := a.Env.Allow(ctx, t.Dir); err != nil {
+		return err
+	}
+	a.Env.Warm(t.Dir)
+	return nil
 }
 
 func (a *App) agentCommand(t Task, withPrompt bool) string {

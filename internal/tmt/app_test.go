@@ -84,6 +84,7 @@ func (f *fakeAgent) For(string) tmt.Agent                                  { ret
 type noEnv struct{}
 
 func (noEnv) Allow(context.Context, string) error   { return nil }
+func (noEnv) Warm(string)                           {}
 func (noEnv) Wrap(_, command string) string         { return command }
 func (noEnv) Write(context.Context, tmt.Task) error { return nil }
 

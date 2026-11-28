@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fake(t *testing.T, script string) (bin, log string) {
@@ -112,5 +113,32 @@ func TestWrapMissingBinary(t *testing.T) {
 	d := &Direnv{Bin: filepath.Join(t.TempDir(), "missing")}
 	if got := d.Wrap(envrc(t), "claude"); got != "claude" {
 		t.Fatalf("Wrap = %q; want claude", got)
+	}
+}
+
+func TestWarm(t *testing.T) {
+	bin, log := fake(t, "")
+	dir := envrc(t)
+	(&Direnv{Bin: bin}).Warm(dir)
+	want := "exec\n" + dir + "\ntrue\n"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := os.ReadFile(log)
+		if err == nil && string(got) == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("args = %q (%v); want %q", got, err, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestWarmNoEnvrc(t *testing.T) {
+	bin, log := fake(t, "")
+	(&Direnv{Bin: bin}).Warm(t.TempDir())
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Fatalf("direnv was executed without .envrc: %v", err)
 	}
 }

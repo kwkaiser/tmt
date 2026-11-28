@@ -215,12 +215,21 @@ func renderFlake(repos []repo, primary string) ([]byte, error) {
 
 func renderEnvrc(repos []repo, envs []string) []byte {
 	var b strings.Builder
+	inputs := []string{envrcFile, FlakeDir + "/" + flakeFile}
 	for _, r := range repos {
 		q := shellQuote(r.Name)
 		b.WriteString("watch_file " + q + "/" + flakeFile + " " + q + "/" + lockFile + "\n")
+		inputs = append(inputs, q+"/"+flakeFile, q+"/"+lockFile)
 	}
 	if len(repos) > 0 {
-		b.WriteString("use flake ./" + FlakeDir + " --recreate-lock-file\n")
+		lock := FlakeDir + "/" + lockFile
+		b.WriteString("for f in " + strings.Join(inputs, " ") + "; do\n")
+		b.WriteString("  if [[ ! -e " + lock + " || $f -nt " + lock + " ]]; then\n")
+		b.WriteString("    nix flake update --flake ./" + FlakeDir + " && touch " + lock + "\n")
+		b.WriteString("    break\n")
+		b.WriteString("  fi\n")
+		b.WriteString("done\n")
+		b.WriteString("use flake ./" + FlakeDir + "\n")
 	}
 	for _, l := range envs {
 		b.WriteString(l + "\n")

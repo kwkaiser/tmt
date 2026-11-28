@@ -11,6 +11,7 @@ type Agent interface {
 
 type EnvTrust interface {
 	Allow(ctx context.Context, dir string) error
+	Warm(dir string)
 	Wrap(dir, command string) string
 }
 
